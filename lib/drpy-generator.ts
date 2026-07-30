@@ -531,9 +531,12 @@ export function generateAPIDrpySpider(input: APIGenerateInput): string {
     lines.push(``);
   }
 
-  // ========== 播放解析 (交给 drpy 嗅探) ==========
-  lines.push(`  // 播放: 交给 Drpy 内置嗅探`);
+  // ========== 播放解析 ==========
+  lines.push(`  // 播放: id 若为 m3u8/mp4 直链则 parse=0 直接播, 否则交给 Drpy 嗅探`);
   lines.push(`  播放: async function(flag, id, flags) {`);
+  lines.push(`    if (/\\.(m3u8|mp4|flv|mpd)(\\?|$)/i.test(id)) {`);
+  lines.push(`      return { parse: 0, url: id };`);
+  lines.push(`    }`);
   lines.push(`    return { parse: 1, url: id };`);
   lines.push(`  }`);
   lines.push(`};`);
