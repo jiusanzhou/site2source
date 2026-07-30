@@ -101,7 +101,7 @@ export function generateDrpySpider(input: GenerateInput): string {
 
   lines.push(`  // 一级列表（site2source 自动识别）`);
   lines.push(`  // ${input.cardCount} 项 · 相似度 ${(input.similarity * 100).toFixed(0)}%`);
-  lines.push(`  一级: '${input.listSelector} ${input.itemSelector};*[title],img&&alt,text;img&&data-original||data-src||src;.*(HD|4K|更新|第.集|全.集|完结|连载|\\\\d{4}).*;a&&href',`);
+  lines.push(`  一级: '${input.listSelector} ${input.itemSelector};*[title],img&&alt,text;img&&data-original||data-src||src;.*?(HD[0-9]*|4K|更新至第?.+?集|第.+?集|全.+?集|完结|连载|BD|超清|高清|\\\\d{4}).*?;a&&href',`);
   lines.push("");
 
   // 二级

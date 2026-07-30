@@ -508,3 +508,115 @@ code {
   background: rgba(245, 158, 11, 0.2);
   color: #fbbf24;
 }
+
+/* ==================== 试运行结果 ==================== */
+.s2s-test-result {
+  margin-top: 12px;
+  padding: 10px;
+  background: var(--s2s-panel);
+  border-radius: 6px;
+  border: 1px solid rgba(59, 130, 246, 0.25);
+}
+
+.s2s-test-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.s2s-test-card {
+  padding: 6px 8px;
+  background: var(--s2s-bg);
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.s2s-test-card-title {
+  margin-bottom: 3px;
+}
+
+.s2s-test-card-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 10px;
+  color: var(--s2s-muted);
+}
+
+.s2s-test-url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: "SF Mono", Menlo, monospace;
+}
+
+.s2s-test-summary {
+  margin-top: 8px;
+  padding: 6px 8px;
+  background: rgba(59, 130, 246, 0.1);
+  border-radius: 4px;
+  font-size: 11px;
+  color: #93c5fd;
+  text-align: center;
+}
+
+/* ==================== 项目列表 ==================== */
+.s2s-project-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 380px;
+  overflow-y: auto;
+}
+
+.s2s-project {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--s2s-panel);
+  border-radius: 5px;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.s2s-project:hover { border-color: rgba(59, 130, 246, 0.3); }
+.s2s-project.active { border-color: var(--s2s-primary); }
+
+.s2s-project-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.s2s-project-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.s2s-project-host {
+  font-size: 10px;
+  color: var(--s2s-muted);
+  font-family: "SF Mono", Menlo, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s2s-project-meta {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.s2s-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  background: rgba(34, 197, 94, 0.15);
+  color: #86efac;
+  border-radius: 3px;
+  font-size: 10px;
+}

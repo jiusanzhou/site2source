@@ -10,6 +10,7 @@ export type Message =
   | { type: "HIGHLIGHT_ELEMENT"; selector: string }
   | { type: "STOP_INSPECT" }
   | { type: "RECOMPUTE_BASE"; selector: string }
+  | { type: "TEST_RULE"; rule: string }
   // 手动点选模式（用户 hover 页面 → 点击选中）
   | { type: "START_PICK"; role: PickRole }
   | { type: "STOP_PICK" }
@@ -25,7 +26,11 @@ export type Message =
   // 状态持久化
   | { type: "SAVE_STATE"; state: Partial<ProjectState> }
   | { type: "GET_STATE" }
-  | { type: "RESET_STATE" };
+  | { type: "RESET_STATE" }
+  // 多项目管理
+  | { type: "LIST_PROJECTS" }
+  | { type: "SWITCH_PROJECT"; host: string }
+  | { type: "DELETE_PROJECT"; host: string };
 
 /** 用户在页面上可以"点选"的字段角色 */
 export type PickRole =
@@ -115,4 +120,5 @@ export interface ProjectState {
   home?: HomeSpec;
   capturedMedia?: CapturedMedia[];
   gistURL?: string;
+  updatedAt?: number;
 }

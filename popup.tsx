@@ -15,6 +15,7 @@ import {
   generateTVBoxJSON,
 } from "~lib/drpy-generator";
 import { hasHostMismatch, resolveHost } from "~lib/base-inferrer";
+import { runOnePlusRule, type OnePlusRuleResult } from "~lib/rule-runner";
 import {
   getGithubToken,
   setGithubToken,
@@ -76,6 +77,23 @@ async function copyToClipboard(text: string) {
   } catch {}
 }
 
+/** 分析试运行结果，给出人话诊断 */
+function summarizeTestResult(r: OnePlusRuleResult): string {
+  if (!r.containerFound) return "❌ 容器都没找到，选择器可能不对";
+  if (r.count === 0) return "⚠️ 容器找到了但里面没卡片";
+  const withName = r.items.filter((i) => i.name).length;
+  const withPic = r.items.filter((i) => i.pic).length;
+  const withURL = r.items.filter((i) => i.url).length;
+  const withRemarks = r.items.filter((i) => i.remarks).length;
+  const parts: string[] = [];
+  parts.push(`📝 标题 ${withName}/${r.count}`);
+  parts.push(`🖼 图 ${withPic}/${r.count}`);
+  parts.push(`🔗 链接 ${withURL}/${r.count}`);
+  if (withRemarks > 0) parts.push(`🏷 备注 ${withRemarks}/${r.count}`);
+  const perfect = withName === r.count && withPic === r.count && withURL === r.count;
+  return (perfect ? "✅ " : "") + parts.join(" · ");
+}
+
 // ==================== component ====================
 
 type Step = "start" | "listPick" | "listReview" | "detail" | "media" | "done";
@@ -89,6 +107,10 @@ function Popup() {
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState<string>("");
   const [showSettings, setShowSettings] = useState(false);
+  const [showProjects, setShowProjects] = useState(false);
+  const [projects, setProjects] = useState<Array<ProjectState & { host: string }>>([]);
+  const [testResult, setTestResult] = useState<OnePlusRuleResult | null>(null);
+  const [testing, setTesting] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<{
     loading: boolean;
     result?: { ok: boolean; spiderURL?: string; gistURL?: string; error?: string };
@@ -300,8 +322,64 @@ function Popup() {
     setCandidates([]);
     setSelectedIdx(null);
     setMedia([]);
+    setTestResult(null);
     setUploadStatus({ loading: false });
     setStep("start");
+  };
+
+  // ==================== 试运行 ====================
+  const runTest = async () => {
+    if (!state.listSelector) return;
+    setTesting(true);
+    // 用当前状态生成 spider 里那个一级规则字符串
+    const listExpr = `${state.listSelector} ${state.listItemTag || "*"}`;
+    const rule = `${listExpr};*[title],img&&alt,text;img&&data-original||data-src||src;.*?(HD[0-9]*|4K|更新至第?.+?集|第.+?集|全.+?集|完结|连载|BD|超清|高清|\\d{4}).*?;a&&href`;
+    const res = await sendToActiveTab<{ result: OnePlusRuleResult }>({
+      type: "TEST_RULE",
+      rule,
+    });
+    setTesting(false);
+    if (res?.result) setTestResult(res.result);
+  };
+
+  // ==================== 项目切换 ====================
+  const loadProjects = useCallback(async () => {
+    const r = await sendToBackground<{
+      projects: Array<ProjectState & { host: string }>;
+    }>({ type: "LIST_PROJECTS" });
+    if (r) setProjects(r.projects);
+  }, []);
+
+  const switchToProject = async (host: string) => {
+    const r = await sendToBackground<{ state: ProjectState }>({
+      type: "SWITCH_PROJECT",
+      host,
+    });
+    if (r?.state) {
+      setState(r.state);
+      setStep(r.state.listSelector ? "listReview" : "start");
+      setTestResult(null);
+      setShowProjects(false);
+    }
+  };
+
+  const deleteProject = async (host: string) => {
+    await sendToBackground({ type: "DELETE_PROJECT", host });
+    await loadProjects();
+    if (state.site?.host === host) {
+      setState({});
+      setStep("start");
+    }
+  };
+
+  const newProject = async () => {
+    await sendToBackground({ type: "RESET_STATE" });
+    await sendToBackground({ type: "CLEAR_CAPTURED_MEDIA" });
+    sendToActiveTab({ type: "STOP_INSPECT" });
+    setState({});
+    setTestResult(null);
+    setStep("start");
+    setShowProjects(false);
   };
 
   // ==================== 渲染 ====================
@@ -323,14 +401,27 @@ function Popup() {
           <div className="s2s-title">Site2Source</div>
           <div className="s2s-sub">{state.site?.host || "TVBox 源生成器"}</div>
         </div>
+        <button
+          className="s2s-btn-mini"
+          onClick={() => {
+            loadProjects();
+            setShowProjects(true);
+          }}
+          title="项目列表"
+        >📁</button>
         <button className="s2s-btn-mini" onClick={() => setShowSettings(true)}>⚙</button>
-        {step !== "start" && (
-          <button className="s2s-btn-mini" onClick={resetAll}>重置</button>
-        )}
       </header>
 
-      {showSettings && (
-        <SettingsPanel onClose={() => setShowSettings(false)} />
+      {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
+      {showProjects && (
+        <ProjectsPanel
+          projects={projects}
+          activeHost={state.site?.host}
+          onSwitch={switchToProject}
+          onDelete={deleteProject}
+          onNew={newProject}
+          onClose={() => setShowProjects(false)}
+        />
       )}
 
       {notice && <div className="s2s-notice">{notice}</div>}
@@ -452,12 +543,60 @@ function Popup() {
             </div>
           )}
 
+          {/* 试运行结果 */}
+          {testResult && (
+            <div className="s2s-test-result">
+              <div className="s2s-section-title" style={{ marginTop: 4 }}>
+                🧪 试运行结果
+                <span className={`s2s-badge ${testResult.count > 0 ? "" : "s2s-badge-warn"}`}>
+                  {testResult.count} 项
+                </span>
+              </div>
+              {testResult.errors && testResult.errors.length > 0 && (
+                <div className="s2s-notice" style={{ margin: "6px 0" }}>
+                  ⚠️ {testResult.errors.join("; ")}
+                </div>
+              )}
+              {testResult.items.length > 0 && (
+                <div className="s2s-test-cards">
+                  {testResult.items.slice(0, 4).map((item, i) => (
+                    <div key={i} className="s2s-test-card">
+                      <div className="s2s-test-card-title">
+                        <b>{item.name || "❌ 无标题"}</b>
+                        {item.remarks && <span className="s2s-remarks"> · {item.remarks}</span>}
+                      </div>
+                      <div className="s2s-test-card-meta">
+                        {item.pic ? <span title={item.pic}>🖼</span> : <span className="s2s-tip-dim">🚫 无图</span>}
+                        {item.url ? (
+                          <span className="s2s-test-url" title={item.url}>
+                            🔗 {shortURL(item.url, 32)}
+                          </span>
+                        ) : (
+                          <span className="s2s-tip-dim">🚫 无链接</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {testResult.count > 4 && (
+                    <div className="s2s-tip-dim">... 共 {testResult.count} 项，只展示前 4 项</div>
+                  )}
+                </div>
+              )}
+              <div className="s2s-test-summary">
+                {summarizeTestResult(testResult)}
+              </div>
+            </div>
+          )}
+
           <div className="s2s-actions">
             <button className="s2s-btn s2s-btn-ghost" onClick={() => setStep("listPick")}>
               重选
             </button>
+            <button className="s2s-btn s2s-btn-ghost" onClick={runTest} disabled={testing}>
+              {testing ? "..." : "🧪 试运行"}
+            </button>
             <button className="s2s-btn s2s-btn-primary" onClick={learnDetail}>
-              下一步 · 详情页 →
+              下一步 →
             </button>
           </div>
         </section>
@@ -571,7 +710,7 @@ function Popup() {
         </section>
       )}
 
-      <footer className="s2s-footer">v0.3 · Site2Source</footer>
+      <footer className="s2s-footer">v0.4 · Site2Source</footer>
     </div>
   );
 }
@@ -762,6 +901,72 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
           <div className="s2s-actions" style={{ marginTop: 8 }}>
             <button className="s2s-btn s2s-btn-primary" onClick={save}>
               {saved ? "✅ 已保存" : "保存"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProjectsPanel({
+  projects, activeHost, onSwitch, onDelete, onNew, onClose,
+}: {
+  projects: Array<ProjectState & { host: string }>;
+  activeHost?: string;
+  onSwitch: (host: string) => void;
+  onDelete: (host: string) => void;
+  onNew: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="s2s-modal-backdrop" onClick={onClose}>
+      <div className="s2s-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="s2s-modal-header">
+          <b>📁 项目列表</b>
+          <button className="s2s-btn-mini" onClick={onClose}>关闭</button>
+        </div>
+        <div className="s2s-modal-body">
+          {projects.length === 0 ? (
+            <p className="s2s-tip">还没有保存过项目</p>
+          ) : (
+            <div className="s2s-project-list">
+              {projects.map((p) => (
+                <div
+                  key={p.host}
+                  className={`s2s-project ${activeHost === p.host ? "active" : ""}`}
+                >
+                  <div className="s2s-project-info" onClick={() => onSwitch(p.host)}>
+                    <div className="s2s-project-name">
+                      <b>{p.site?.siteName || p.host}</b>
+                      {activeHost === p.host && <span className="s2s-badge">当前</span>}
+                    </div>
+                    <div className="s2s-project-host">{p.host}</div>
+                    <div className="s2s-project-meta">
+                      {p.listSelector && <span className="s2s-tag">列表 ✓</span>}
+                      {p.detail?.titleSelector && <span className="s2s-tag">详情 ✓</span>}
+                      {p.gistURL && <span className="s2s-tag">Gist ✓</span>}
+                      {p.updatedAt && (
+                        <span className="s2s-tip-dim">
+                          {new Date(p.updatedAt).toLocaleDateString()}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    className="s2s-btn-mini"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (confirm(`删除项目 ${p.host}？`)) onDelete(p.host);
+                    }}
+                  >🗑</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="s2s-actions" style={{ marginTop: 10 }}>
+            <button className="s2s-btn s2s-btn-primary" onClick={onNew}>
+              ➕ 新建项目
             </button>
           </div>
         </div>
