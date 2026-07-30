@@ -34,3 +34,28 @@
   color: #93c5fd;
   text-align: center;
 }
+
+.s2s-sidepanel-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: linear-gradient(90deg, rgba(59,130,246,0.15), rgba(59,130,246,0.05));
+  border-bottom: 1px solid rgba(59,130,246,0.2);
+  font-size: 11px;
+  color: #93c5fd;
+}
+.s2s-sidepanel-close {
+  padding: 2px 8px;
+  font-size: 10px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 3px;
+  color: #cbd5e1;
+  cursor: pointer;
+}
+.s2s-sidepanel-close:hover {
+  background: rgba(239,68,68,0.15);
+  border-color: rgba(239,68,68,0.4);
+  color: #f87171;
+}

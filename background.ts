@@ -504,10 +504,34 @@ console.log("[site2source] background ready (v0.2)");
 
 // ==================== Side Panel ====================
 
-// 默认关: 用户手动打开(popup 里点按钮). 打开后跟随 tab.
-chrome.sidePanel
-  ?.setPanelBehavior({ openPanelOnActionClick: false })
-  .catch(() => {});
+const PREFER_SIDEPANEL_KEY = "s2s:preferSidepanel";
+
+/**
+ * 根据用户偏好决定点扩展图标弹啥.
+ * 首次: popup (轻量, 用户不知道 sidepanel 存在时的合理默认)
+ * 一旦切过 sidepanel: 记住这个偏好, 下次直接开 sidepanel
+ */
+async function refreshActionBehavior() {
+  const r = await chrome.storage.local.get([PREFER_SIDEPANEL_KEY]);
+  const prefer = !!r[PREFER_SIDEPANEL_KEY];
+  if (prefer) {
+    // openPanelOnActionClick=true: 点扩展图标直接开 sidepanel
+    // 需要同时清掉 popup, 否则 chrome 优先弹 popup
+    chrome.sidePanel.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => {});
+    chrome.action.setPopup?.({ popup: "" }).catch(() => {});
+  } else {
+    chrome.sidePanel.setPanelBehavior?.({ openPanelOnActionClick: false }).catch(() => {});
+    chrome.action.setPopup?.({ popup: "popup.html" }).catch(() => {});
+  }
+}
+refreshActionBehavior();
+
+// 变化时同步 (popup 里切了偏好后)
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes[PREFER_SIDEPANEL_KEY]) {
+    refreshActionBehavior();
+  }
+});
 
 // popup 发消息触发打开侧边栏
 chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
@@ -522,9 +546,23 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
       // 从 popup 内消息里调用属于用户手势, 有效
       chrome.sidePanel
         .open({ tabId: tab.id, windowId: tab.windowId })
-        .then(() => sendResponse({ ok: true }))
+        .then(async () => {
+          // 记住偏好: 用户主动打开过一次 sidepanel, 之后默认走 sidepanel
+          if (msg.remember) {
+            await chrome.storage.local.set({ [PREFER_SIDEPANEL_KEY]: true });
+          }
+          sendResponse({ ok: true });
+        })
         .catch((e) => sendResponse({ ok: false, error: String(e) }));
     });
+    return true;
+  }
+
+  if (msg?.type === "SET_UI_PREFERENCE") {
+    // popup 里切换偏好
+    chrome.storage.local
+      .set({ [PREFER_SIDEPANEL_KEY]: !!msg.preferSidepanel })
+      .then(() => sendResponse({ ok: true }));
     return true;
   }
 });

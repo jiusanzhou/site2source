@@ -192,7 +192,7 @@ function Popup() {
 
   const startManualPick = () => {
     sendToActiveTab({ type: "START_PICK", role: "list" });
-    window.close();
+    if (!isInSidePanel()) window.close();
   };
 
   const learnDetail = async () => {
@@ -218,7 +218,7 @@ function Popup() {
 
   const startPick = (role: PickRole) => {
     sendToActiveTab({ type: "START_PICK", role });
-    window.close();
+    if (!isInSidePanel()) window.close();
   };
 
   const handlePickResult = async (role: PickRole, selector: string, sample: string) => {
@@ -612,13 +612,13 @@ function Popup() {
             className="s2s-btn-mini"
             onClick={async () => {
               try {
-                await sendToBackground({ type: "OPEN_SIDEPANEL" });
+                await sendToBackground({ type: "OPEN_SIDEPANEL", remember: true });
                 window.close(); // 关掉 popup, 侧边栏已经开了
               } catch (e) {
                 alert("打开侧边栏失败: " + (e as any).message);
               }
             }}
-            title="打开侧边栏 (点选元素时不会关闭)"
+            title="打开侧边栏 (点选元素时不会关闭 · 记住偏好)"
           >📌</button>
         )}
         <button
