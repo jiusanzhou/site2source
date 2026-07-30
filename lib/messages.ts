@@ -10,6 +10,7 @@ export type Message =
   | { type: "HIGHLIGHT_ELEMENT"; selector: string }
   | { type: "STOP_INSPECT" }
   | { type: "RECOMPUTE_BASE"; selector: string }
+  | { type: "GET_SAMPLES"; selector: string; itemTag?: string }
   | { type: "TEST_RULE"; rule: string }
   | { type: "TEST_DETAIL_RULE"; input: import("./rule-runner").DetailRuleInput }
   | { type: "GET_HTML_SNAPSHOT"; maxBytes?: number }

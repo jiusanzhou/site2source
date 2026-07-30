@@ -9,6 +9,7 @@
 
 import {
   findListContainers,
+  extractCard,
   type ListCandidate,
 } from "~lib/dom-analyzer";
 import { inferBaseInfo } from "~lib/base-inferrer";
@@ -605,6 +606,34 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
       url: location.href,
       title: document.title,
     });
+    return true;
+  }
+
+  if (msg.type === "GET_SAMPLES") {
+    // 给定容器 selector, 采样前 3 个卡片, 提取 name/pic/url/remarks
+    const samples: SerializedSample[] = [];
+    try {
+      const container = document.querySelector(msg.selector);
+      if (container) {
+        const tag = msg.itemTag && msg.itemTag !== "*" ? msg.itemTag : null;
+        const kids = tag
+          ? Array.from(container.querySelectorAll(`:scope > ${tag}`))
+          : Array.from(container.children);
+        const list = kids.length > 0 ? kids : Array.from(container.querySelectorAll(tag || "li,div,a")).slice(0, 30);
+        for (const el of list.slice(0, 3)) {
+          const card = extractCard(el as Element);
+          samples.push({
+            name: card.name,
+            pic: card.pic,
+            url: card.url,
+            remarks: card.remarks,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("[inspector] GET_SAMPLES failed", e);
+    }
+    sendResponse({ samples });
     return true;
   }
 

@@ -30,6 +30,7 @@ export interface AIFieldResult {
   playTabSelector?: string;
   playListSelector?: string;
   listContainerSelector?: string;
+  listItemTag?: string;         // 卡片标签, 如 li / div / a
   reasoning?: string;    // 简短说明
   errors?: string[];
 }
@@ -40,12 +41,11 @@ interface AIRawResp {
 }
 
 /**
- * 询问 AI 详情页选择器
- * @param htmlSnippet 精简过的 HTML (通常 <20KB)
- * @param pageURL 当前页 URL (帮助 AI 判断上下文)
- * @param existing 已识别的字段(如有), AI 会尝试改进未识别的
+ * 通用 AI 调用 - 让 AI 看 HTML 给字段选择器
+ * @param mode 'detail' | 'list'  区分详情页/列表页 prompt
  */
-export async function askAIDetail(
+async function askAI(
+  mode: "detail" | "list",
   htmlSnippet: string,
   pageURL: string,
   existing?: Partial<AIFieldResult>,
@@ -55,7 +55,9 @@ export async function askAIDetail(
     return { errors: ["未配置 AI key, 请在设置里填 OpenRouter Key"] };
   }
 
-  const prompt = buildDetailPrompt(htmlSnippet, pageURL, existing);
+  const prompt = mode === "list"
+    ? buildListPrompt(htmlSnippet, pageURL, existing)
+    : buildDetailPrompt(htmlSnippet, pageURL, existing);
 
   try {
     const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -89,12 +91,10 @@ export async function askAIDetail(
     const content = data.choices?.[0]?.message?.content;
     if (!content) return { errors: ["AI 返回空"] };
 
-    // 解析 JSON
     let parsed: any;
     try {
       parsed = JSON.parse(content);
     } catch {
-      // 兜底: 从 markdown 里挖 JSON
       const m = content.match(/\{[\s\S]*\}/);
       if (m) {
         try { parsed = JSON.parse(m[0]); }
@@ -111,11 +111,28 @@ export async function askAIDetail(
       playTabSelector: cleanSel(parsed.playTabSelector),
       playListSelector: cleanSel(parsed.playListSelector),
       listContainerSelector: cleanSel(parsed.listContainerSelector),
+      listItemTag: cleanSel(parsed.listItemTag),
       reasoning: parsed.reasoning,
     };
   } catch (e: any) {
     return { errors: [`网络错误: ${e.message}`] };
   }
+}
+
+export async function askAIDetail(
+  htmlSnippet: string,
+  pageURL: string,
+  existing?: Partial<AIFieldResult>,
+): Promise<AIFieldResult> {
+  return askAI("detail", htmlSnippet, pageURL, existing);
+}
+
+export async function askAIList(
+  htmlSnippet: string,
+  pageURL: string,
+  existing?: Partial<AIFieldResult>,
+): Promise<AIFieldResult> {
+  return askAI("list", htmlSnippet, pageURL, existing);
 }
 
 function cleanSel(s: any): string | undefined {
@@ -125,16 +142,19 @@ function cleanSel(s: any): string | undefined {
   return t;
 }
 
-const SYSTEM_PROMPT = `你是网页爬虫选择器专家。给你一段影视网站的 HTML 片段，你要输出 CSS 选择器（支持 Drpy 的 && 属性语法）来提取以下字段。
+const SYSTEM_PROMPT = `你是网页爬虫选择器专家。给你影视网站的 HTML 片段, 你输出精确的 CSS 选择器 (支持 Drpy && 属性语法) 用来提取影片数据。
 
-支持的语法（Drpy T4 兼容）:
-- 纯 CSS 选择器: h1.title
-- 提取属性: img&&src / a&&href
-- 属性 fallback: img&&data-original||data-src||src
+Drpy T4 语法:
+- 纯 CSS: h1.title / .video-list > li
+- 提取属性: img&&src / a&&href / h1&&Text
+- 属性 fallback: img&&data-original||data-src||src (惰性图 fallback)
 - 逗号候选: *[title],img&&alt (取第一个非空)
 
-必须返回严格 JSON，只包含这些 key: titleSelector, picSelector, descSelector, playTabSelector, playListSelector, listContainerSelector, reasoning
-未找到的字段用 null。不要 markdown 代码块，直接返回 JSON。`;
+约束:
+- 只返回 JSON, 不要 markdown code fence
+- 找不到的字段用 null
+- 选择器要尽量简短但唯一 (优先 class > tag+attribute > tag chain)
+- 优先选**语义化 class** (.title 好于 h1, .video-list 好于 div > div)`;
 
 function buildDetailPrompt(
   html: string,
@@ -142,22 +162,50 @@ function buildDetailPrompt(
   existing?: Partial<AIFieldResult>,
 ): string {
   const parts: string[] = [];
-  parts.push(`页面 URL: ${url}`);
-  if (existing && Object.keys(existing).length > 0) {
-    parts.push(`已识别的字段 (如需改进请覆盖):`);
+  parts.push(`## 页面类型: 影片详情页`);
+  parts.push(`URL: ${url}`);
+  if (existing && Object.keys(existing).some((k) => (existing as any)[k])) {
+    parts.push(`\n已识别的字段 (如需改进请覆盖, 认为已经对的请照抄):`);
     Object.entries(existing).forEach(([k, v]) => {
       if (v) parts.push(`  ${k}: ${v}`);
     });
   }
-  parts.push(`\n请提取:`);
-  parts.push(`- titleSelector: 影片标题 (H1, .title 之类)`);
-  parts.push(`- picSelector: 封面图 (img&&src, 支持 data-src 兜底)`);
-  parts.push(`- descSelector: 剧情简介 (较长的一段文字)`);
-  parts.push(`- playTabSelector: 播放线路切换按钮 (每个线路对应一个元素, 如 .play-from li)`);
-  parts.push(`- playListSelector: 剧集列表容器 (里面是很多 <a> 链接, 如 .play-list)`);
-  parts.push(`- listContainerSelector: (只在列表页填) 影片卡片列表容器`);
-  parts.push(`- reasoning: 一句话解释判断依据`);
-  parts.push(`\n=== HTML 片段 ===`);
+  parts.push(`\n## 输出 JSON, 包含这些 key:`);
+  parts.push(`- titleSelector: 影片标题 (如 h1.title, 或 .video-info h1)`);
+  parts.push(`- picSelector: 封面图 URL, 用属性表达式 (如 .cover img&&data-original||src)`);
+  parts.push(`- descSelector: 剧情简介 (较长文字段, 如 .desc, .video-content .synopsis)`);
+  parts.push(`- playTabSelector: 播放线路切换按钮的**每个** tab (如 .play-from > li)`);
+  parts.push(`- playListSelector: 剧集列表容器 (里面是 <a> 链接, 如 .play-list ul, .episode-list)`);
+  parts.push(`- reasoning: 一句话说明主要判断依据`);
+  parts.push(`\n## HTML:`);
+  parts.push(html);
+  return parts.join("\n");
+}
+
+function buildListPrompt(
+  html: string,
+  url: string,
+  existing?: Partial<AIFieldResult>,
+): string {
+  const parts: string[] = [];
+  parts.push(`## 页面类型: 影片列表页 (首页/分类/搜索结果)`);
+  parts.push(`URL: ${url}`);
+  if (existing && Object.keys(existing).some((k) => (existing as any)[k])) {
+    parts.push(`\n已有识别:`);
+    Object.entries(existing).forEach(([k, v]) => {
+      if (v) parts.push(`  ${k}: ${v}`);
+    });
+  }
+  parts.push(`\n## 输出 JSON:`);
+  parts.push(`- listContainerSelector: 影片卡片列表**容器** (不含卡片自身, 如 .video-list, ul.movies)`);
+  parts.push(`- listItemTag: 每张卡片的标签名 (li / div / a, 用小写)`);
+  parts.push(`- reasoning: 一句话说明为何这个容器最像影片列表`);
+  parts.push(`\n判断影片列表的信号:`);
+  parts.push(`- 内部有多个结构相似的子项 (10+ 个)`);
+  parts.push(`- 每个子项都有 <a href> 和 <img>`);
+  parts.push(`- <a> 的 href 通常带 /vod/, /detail/, /movie/ 之类`);
+  parts.push(`- 排除页头 nav / 侧栏 / 页脚里的分类链接列表`);
+  parts.push(`\n## HTML:`);
   parts.push(html);
   return parts.join("\n");
 }

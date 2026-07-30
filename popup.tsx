@@ -16,7 +16,7 @@ import {
 } from "~lib/drpy-generator";
 import { runOnePlusRule, type OnePlusRuleResult, type DetailRuleResult } from "~lib/rule-runner";
 import { uploadToGist } from "~lib/gist-uploader";
-import { askAIDetail, trimHTML, hasAIConfig } from "~lib/ai-helper";
+import { askAIDetail, askAIList, trimHTML, hasAIConfig } from "~lib/ai-helper";
 import {
   sendToActiveTab,
   sendToBackground,
@@ -365,6 +365,160 @@ function Popup() {
     });
   };
 
+  // AI 识别列表容器 - 用户点了 AI 但自动分析找不到列表时用
+  const askAIForList = async () => {
+    if (!(await hasAIConfig())) {
+      alert("请先在 ⚙ 设置里填 OpenRouter API Key");
+      return;
+    }
+    setAIStatus({ loading: true, msg: "抓页面 HTML..." });
+    const snap = await sendToActiveTab<{ html: string; url: string; title: string }>({
+      type: "GET_HTML_SNAPSHOT",
+    });
+    if (!snap?.html) {
+      setAIStatus({ loading: false, msg: "抓 HTML 失败" });
+      return;
+    }
+    setAIStatus({ loading: true, msg: "AI 分析列表结构..." });
+    const result = await askAIList(trimHTML(snap.html), snap.url, {
+      listContainerSelector: state.listSelector,
+      listItemTag: state.listItemTag,
+    });
+    if (result.errors?.length) {
+      setAIStatus({ loading: false, msg: `❌ ${result.errors[0]}` });
+      return;
+    }
+    if (!result.listContainerSelector) {
+      setAIStatus({ loading: false, msg: "AI 也没找到明确的影片列表" });
+      return;
+    }
+    // 应用 AI 建议 + 重采样
+    const patch: Partial<ProjectState> = {
+      listSelector: result.listContainerSelector,
+      listItemTag: result.listItemTag || "*",
+    };
+    await sendToBackground({ type: "SAVE_STATE", state: patch });
+    // 重新采样 3 张卡片 + 重算 base
+    const detail = await sendToActiveTab<{ samples: SerializedSample[] }>({
+      type: "GET_SAMPLES",
+      selector: result.listContainerSelector,
+      itemTag: result.listItemTag || "*",
+    });
+    if (detail?.samples) {
+      patch.listSamples = detail.samples;
+    }
+    const baseInfo = await sendToActiveTab<{ baseInfo: BaseInfo }>({
+      type: "RECOMPUTE_BASE",
+      selector: result.listContainerSelector,
+    });
+    if (baseInfo?.baseInfo) patch.baseInfo = baseInfo.baseInfo;
+    await sendToBackground({ type: "SAVE_STATE", state: patch });
+    setState((s) => ({ ...s, ...patch }));
+    setTestResult(null);
+    setStep("listReview");
+    setAIStatus({
+      loading: false,
+      msg: `✅ AI 定位: ${result.listContainerSelector}${result.reasoning ? " — " + result.reasoning : ""}`,
+    });
+  };
+
+  // 🚀 AI 一键模式：从 start 页触发, 让 AI 尽可能填齐当前页的字段
+  const runAIAutoPilot = async () => {
+    if (!(await hasAIConfig())) {
+      alert("请先在 ⚙ 设置里填 OpenRouter API Key");
+      return;
+    }
+    setAIStatus({ loading: true, msg: "🚀 抓页面 HTML..." });
+    const snap = await sendToActiveTab<{ html: string; url: string; title: string }>({
+      type: "GET_HTML_SNAPSHOT",
+    });
+    if (!snap?.html) {
+      setAIStatus({ loading: false, msg: "抓 HTML 失败" });
+      return;
+    }
+
+    // 先当作详情页试 (影片详情页信息量更大, 也顺带能得到列表结构)
+    setAIStatus({ loading: true, msg: "🤖 AI 分析页面类型..." });
+    const trimmed = trimHTML(snap.html);
+
+    // 并发跑列表识别 + 详情识别, 之后按结果决定当前页是啥
+    const [listRes, detailRes] = await Promise.all([
+      askAIList(trimmed, snap.url),
+      askAIDetail(trimmed, snap.url),
+    ]);
+
+    // 存 site info (如果没有)
+    if (!state.site) {
+      const site: SiteInfo = {
+        siteName: snap.title,
+        host: new URL(snap.url).origin,
+        baseURL: snap.url,
+        pageURL: snap.url,
+      };
+      await sendToBackground({ type: "SAVE_STATE", state: { site } });
+      setState((s) => ({ ...s, site }));
+    }
+
+    const patch: Partial<ProjectState> = {};
+
+    // 列表结果
+    if (listRes.listContainerSelector) {
+      patch.listSelector = listRes.listContainerSelector;
+      patch.listItemTag = listRes.listItemTag || "*";
+      const detail = await sendToActiveTab<{ samples: SerializedSample[] }>({
+        type: "GET_SAMPLES",
+        selector: listRes.listContainerSelector,
+        itemTag: listRes.listItemTag || "*",
+      });
+      if (detail?.samples) patch.listSamples = detail.samples;
+      const baseInfo = await sendToActiveTab<{ baseInfo: BaseInfo }>({
+        type: "RECOMPUTE_BASE",
+        selector: listRes.listContainerSelector,
+      });
+      if (baseInfo?.baseInfo) patch.baseInfo = baseInfo.baseInfo;
+    }
+
+    // 详情结果
+    if (detailRes.titleSelector || detailRes.playListSelector) {
+      const detailSpec: DetailSpec = {
+        ...(state.detail || {}),
+        detailURL: snap.url,
+        titleSelector: detailRes.titleSelector,
+        picSelector: detailRes.picSelector,
+        descSelector: detailRes.descSelector,
+        playTabSelector: detailRes.playTabSelector,
+        playListSelector: detailRes.playListSelector,
+      };
+      patch.detail = detailSpec;
+    }
+
+    if (Object.keys(patch).length === 0) {
+      setAIStatus({ loading: false, msg: "❌ AI 认为这不是影片站的列表/详情页" });
+      return;
+    }
+
+    await sendToBackground({ type: "SAVE_STATE", state: patch });
+    setState((s) => ({ ...s, ...patch }));
+
+    // 决定停在哪一步
+    if (patch.listSelector && !patch.detail?.titleSelector) {
+      setStep("listReview");
+      setAIStatus({
+        loading: false,
+        msg: `✅ 找到列表容器。点进一部影片详情页, 再点 🤖 让 AI 补详情。`,
+      });
+    } else if (patch.detail?.titleSelector) {
+      setStep("detail");
+      setAIStatus({
+        loading: false,
+        msg: `✅ AI 完成识别${listRes.reasoning ? ": " + listRes.reasoning : ""}${detailRes.reasoning ? " · " + detailRes.reasoning : ""}`,
+      });
+    } else if (patch.listSelector) {
+      setStep("listReview");
+      setAIStatus({ loading: false, msg: "✅ 找到列表容器" });
+    }
+  };
+
   // ==================== 项目切换 ====================
   const loadProjects = useCallback(async () => {
     const r = await sendToBackground<{
@@ -467,10 +621,21 @@ function Popup() {
       {step === "start" && (
         <section className="s2s-section">
           <p className="s2s-tip">
-            打开影视网站的<b>首页或分类页</b>（有影片列表的地方），然后：
+            打开影视网站的<b>首页 / 分类页 / 详情页</b>都行，然后：
           </p>
-          <button className="s2s-btn s2s-btn-primary" onClick={analyzeCurrentPage} disabled={loading}>
-            {loading ? "分析中..." : "🔎 分析此页面"}
+          <button
+            className="s2s-btn s2s-btn-primary"
+            onClick={runAIAutoPilot}
+            disabled={aiStatus.loading}
+            title="AI 自动分析当前页, 尽可能填齐字段"
+          >
+            {aiStatus.loading ? aiStatus.msg || "..." : "🚀 AI 一键完成"}
+          </button>
+          <p className="s2s-tip s2s-tip-dim" style={{ margin: "6px 0" }}>
+            —— 或者用规则识别 ——
+          </p>
+          <button className="s2s-btn s2s-btn-ghost" onClick={analyzeCurrentPage} disabled={loading}>
+            {loading ? "分析中..." : "🔎 规则分析"}
           </button>
           <div className="s2s-actions" style={{ marginTop: 8 }}>
             <button className="s2s-btn s2s-btn-ghost" onClick={startManualPick}>
@@ -478,8 +643,13 @@ function Popup() {
             </button>
           </div>
           <p className="s2s-tip s2s-tip-dim" style={{ marginTop: 12 }}>
-            💡 手动模式：hover 元素高亮 → 点击确认。Esc 取消。
+            💡 一键模式最省事,规则模式最省钱,手动模式最精准。
           </p>
+          {aiStatus.msg && !aiStatus.loading && (
+            <div className={`s2s-notice ${aiStatus.msg.startsWith("❌") ? "s2s-notice-err" : ""}`} style={{ marginTop: 8 }}>
+              {aiStatus.msg}
+            </div>
+          )}
         </section>
       )}
 
@@ -615,6 +785,14 @@ function Popup() {
             <button className="s2s-btn s2s-btn-ghost" onClick={() => setStep("listPick")}>
               重选
             </button>
+            <button
+              className="s2s-btn s2s-btn-ghost"
+              onClick={askAIForList}
+              disabled={aiStatus.loading}
+              title="AI 重新识别列表容器"
+            >
+              {aiStatus.loading ? "..." : "🤖 AI 重找"}
+            </button>
             <button className="s2s-btn s2s-btn-ghost" onClick={runTest} disabled={testing}>
               {testing ? "..." : "🧪 试运行"}
             </button>
@@ -622,6 +800,11 @@ function Popup() {
               下一步 →
             </button>
           </div>
+          {aiStatus.msg && !aiStatus.loading && step === "listReview" && (
+            <div className={`s2s-notice ${aiStatus.msg.startsWith("❌") ? "s2s-notice-err" : ""}`} style={{ marginTop: 8 }}>
+              {aiStatus.msg}
+            </div>
+          )}
         </section>
       )}
 
