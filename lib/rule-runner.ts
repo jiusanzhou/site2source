@@ -23,6 +23,28 @@ export interface OnePlusRuleResult {
   errors?: string[];
 }
 
+/** 二级规则（详情页）试运行结果 */
+export interface DetailRuleResult {
+  title: string;
+  pic: string;
+  desc: string;
+  playFrom: string[];    // 线路名列表
+  playURL: {             // 每条线路的剧集
+    line: string;
+    episodes: { name: string; url: string }[];
+  }[];
+  errors?: string[];
+}
+
+/** 详情规则输入 */
+export interface DetailRuleInput {
+  titleSelector?: string;
+  picSelector?: string;
+  descSelector?: string;
+  playFromSelector?: string;    // 线路切换 tabs（如 .play-from li）
+  playListSelector?: string;    // 剧集列表容器 (如 .play-list)
+}
+
 /**
  * 解析一级规则字符串
  * 格式: `<容器 卡片>;<name>;<pic>;<remarks>;<url>`
@@ -188,4 +210,95 @@ function querySelectorFlex(el: Element, sel: string): Element | null {
   } catch {
     return null;
   }
+}
+
+// ==================== 二级规则（详情页）====================
+
+/** 从 DOM 抽取单个字段 (顶层): "sel" 或 "sel&&attr" */
+function extractDetailField(doc: Document, expr?: string): string {
+  if (!expr) return "";
+  const parts = expr.split("&&");
+  const sel = parts[0].trim();
+  const attr = parts[1]?.trim();
+  let el: Element | null = null;
+  try { el = doc.querySelector(sel); } catch { return ""; }
+  if (!el) return "";
+
+  if (!attr || attr.toLowerCase() === "text") {
+    return (el.textContent || "").trim();
+  }
+  if (attr === "html" || attr === "innerHTML") return el.innerHTML;
+  const attrs = attr.split("||").map((a) => a.trim()).filter(Boolean);
+  for (const a of attrs) {
+    const v = el.getAttribute(a);
+    if (v) {
+      if (/^(src|href|data-src|data-original|data-lazy-src)$/i.test(a)) {
+        try { return new URL(v, doc.location?.href || location.href).toString(); }
+        catch { return v; }
+      }
+      return v;
+    }
+  }
+  return "";
+}
+
+/** 试运行详情规则 */
+export function runDetailRule(doc: Document, input: DetailRuleInput): DetailRuleResult {
+  const errors: string[] = [];
+
+  const title = extractDetailField(doc, input.titleSelector);
+  const pic = extractDetailField(doc, input.picSelector || "img&&src");
+  const desc = extractDetailField(doc, input.descSelector);
+
+  // 线路 tabs
+  let playFrom: string[] = [];
+  if (input.playFromSelector) {
+    try {
+      const els = Array.from(doc.querySelectorAll(input.playFromSelector));
+      playFrom = els.map((e) => (e.textContent || "").trim()).filter(Boolean);
+    } catch (e: any) {
+      errors.push(`线路选择器错: ${e.message}`);
+    }
+  }
+  if (playFrom.length === 0) playFrom = ["默认"];
+
+  // 剧集列表
+  const playURL: DetailRuleResult["playURL"] = [];
+  if (input.playListSelector) {
+    try {
+      // playListSelector 可能是 ".play-list" 也可能是 ".play-list a"
+      const containers = Array.from(doc.querySelectorAll(input.playListSelector));
+      if (containers.length === 0) {
+        errors.push(`剧集容器未找到: ${input.playListSelector}`);
+      }
+
+      // 一个线路对应一个 container，或者一个 container 里所有 <a> 都是剧集
+      const numLines = Math.max(playFrom.length, containers.length);
+      for (let i = 0; i < numLines; i++) {
+        const line = playFrom[i] || `线路${i + 1}`;
+        const box = containers[i] || containers[0];
+        if (!box) continue;
+        // 剧集链接：容器内所有 <a>
+        const links = Array.from(box.querySelectorAll("a"));
+        const episodes = links
+          .map((a) => ({
+            name: (a.textContent || "").trim(),
+            url: a.getAttribute("href") || "",
+          }))
+          .filter((e) => e.name || e.url);
+        playURL.push({ line, episodes });
+      }
+    } catch (e: any) {
+      errors.push(`剧集选择器错: ${e.message}`);
+    }
+  }
+
+  return {
+    title,
+    pic,
+    desc,
+    playFrom,
+    playURL,
+    errors: errors.length ? errors : undefined,
+  };
 }

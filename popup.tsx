@@ -15,7 +15,7 @@ import {
   generateTVBoxJSON,
 } from "~lib/drpy-generator";
 import { hasHostMismatch, resolveHost } from "~lib/base-inferrer";
-import { runOnePlusRule, type OnePlusRuleResult } from "~lib/rule-runner";
+import { runOnePlusRule, type OnePlusRuleResult, type DetailRuleResult } from "~lib/rule-runner";
 import {
   getGithubToken,
   setGithubToken,
@@ -77,6 +77,28 @@ async function copyToClipboard(text: string) {
   } catch {}
 }
 
+/**
+ * 处理试播: mp4 直接 popup 内看; m3u8 只能复制到外部播放器
+ */
+function openInPlayer(url: string) {
+  const isMp4 = /\.(mp4|flv)(\?|$)/i.test(url);
+  if (isMp4) {
+    // MP4 直接开新 tab, 浏览器原生放
+    chrome.tabs.create({ url });
+  } else {
+    // m3u8/hls: 复制 URL + 提示
+    navigator.clipboard.writeText(url).then(() => {
+      alert(
+        "已复制 m3u8 URL 到剪贴板\n\n" +
+        "试播方法：\n" +
+        "• VLC: 媒体 → 打开网络串流 → 粘贴 URL\n" +
+        "• Chrome: 装 'Native HLS Playback' 扩展\n" +
+        "• 或者装到 TVBox 里直接跑生成的 spider"
+      );
+    });
+  }
+}
+
 /** 分析试运行结果，给出人话诊断 */
 function summarizeTestResult(r: OnePlusRuleResult): string {
   if (!r.containerFound) return "❌ 容器都没找到，选择器可能不对";
@@ -92,6 +114,17 @@ function summarizeTestResult(r: OnePlusRuleResult): string {
   if (withRemarks > 0) parts.push(`🏷 备注 ${withRemarks}/${r.count}`);
   const perfect = withName === r.count && withPic === r.count && withURL === r.count;
   return (perfect ? "✅ " : "") + parts.join(" · ");
+}
+
+/** 详情页试运行诊断 */
+function summarizeDetail(r: DetailRuleResult): string {
+  const parts: string[] = [];
+  parts.push(r.title ? "✓ 标题" : "✗ 标题");
+  parts.push(r.pic ? "✓ 图" : "✗ 图");
+  parts.push(r.desc ? "✓ 简介" : "✗ 简介");
+  const totalEp = r.playURL.reduce((sum, l) => sum + l.episodes.length, 0);
+  parts.push(totalEp > 0 ? `✓ ${r.playURL.length} 线路 · ${totalEp} 集` : "✗ 无剧集");
+  return parts.join(" · ");
 }
 
 // ==================== component ====================
@@ -110,6 +143,7 @@ function Popup() {
   const [showProjects, setShowProjects] = useState(false);
   const [projects, setProjects] = useState<Array<ProjectState & { host: string }>>([]);
   const [testResult, setTestResult] = useState<OnePlusRuleResult | null>(null);
+  const [detailTestResult, setDetailTestResult] = useState<DetailRuleResult | null>(null);
   const [testing, setTesting] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<{
     loading: boolean;
@@ -340,6 +374,35 @@ function Popup() {
     });
     setTesting(false);
     if (res?.result) setTestResult(res.result);
+  };
+
+  // 详情页试运行 —— 用当前 detail 字段选择器实际提取
+  const runDetailTest = async () => {
+    if (!state.detail) return;
+    setTesting(true);
+    const res = await sendToActiveTab<{ result: DetailRuleResult }>({
+      type: "TEST_DETAIL_RULE",
+      input: {
+        titleSelector: state.detail.titleSelector,
+        picSelector: state.detail.picSelector,
+        descSelector: state.detail.descSelector,
+        playFromSelector: state.detail.playTabSelector,
+        playListSelector: state.detail.playListSelector,
+      },
+    });
+    setTesting(false);
+    if (res?.result) setDetailTestResult(res.result);
+  };
+
+  // 手工编辑详情字段（inline 改选择器）
+  const editDetailField = async (
+    field: "titleSelector" | "picSelector" | "descSelector" | "playTabSelector" | "playListSelector",
+    val: string,
+  ) => {
+    const next: DetailSpec = { ...(state.detail || {}), [field]: val };
+    await sendToBackground({ type: "SAVE_STATE", state: { detail: next } });
+    setState((s) => ({ ...s, detail: next }));
+    setDetailTestResult(null);   // 清掉旧结果, 下一次点试运行才重跑
   };
 
   // ==================== 项目切换 ====================
@@ -612,18 +675,96 @@ function Popup() {
           </div>
           <p className="s2s-tip">
             打开一部影片的详情页，然后：<br />
-            识别错的字段 → 点"手选"，去页面上点击正确元素。
+            识别错的字段 → 点 <b>✎</b> 手改选择器，或 <b>点选</b> 从页面上认领元素。
           </p>
           <div className="s2s-detail-grid">
-            <DetailField label="标题" selector={state.detail?.titleSelector} onPick={() => startPick("title")} />
-            <DetailField label="简介" selector={state.detail?.descSelector} onPick={() => startPick("desc")} />
-            <DetailField label="播放线路" selector={state.detail?.playTabSelector} onPick={() => startPick("playTab")} />
-            <DetailField label="剧集列表" selector={state.detail?.playListSelector} onPick={() => startPick("playList")} />
+            <DetailField
+              label="标题"
+              selector={state.detail?.titleSelector}
+              sample={detailTestResult?.title}
+              onPick={() => startPick("title")}
+              onEdit={(v) => editDetailField("titleSelector", v)}
+            />
+            <DetailField
+              label="封面"
+              selector={state.detail?.picSelector}
+              sample={detailTestResult?.pic}
+              onPick={() => startPick("pic")}
+              onEdit={(v) => editDetailField("picSelector", v)}
+            />
+            <DetailField
+              label="简介"
+              selector={state.detail?.descSelector}
+              sample={detailTestResult?.desc?.slice(0, 60) + (detailTestResult && detailTestResult.desc.length > 60 ? "..." : "")}
+              onPick={() => startPick("desc")}
+              onEdit={(v) => editDetailField("descSelector", v)}
+            />
+            <DetailField
+              label="播放线路"
+              selector={state.detail?.playTabSelector}
+              sample={detailTestResult?.playFrom.join(" / ")}
+              onPick={() => startPick("playTab")}
+              onEdit={(v) => editDetailField("playTabSelector", v)}
+            />
+            <DetailField
+              label="剧集列表"
+              selector={state.detail?.playListSelector}
+              sample={
+                detailTestResult && detailTestResult.playURL.length > 0
+                  ? `${detailTestResult.playURL[0].episodes.length} 集`
+                  : undefined
+              }
+              onPick={() => startPick("playList")}
+              onEdit={(v) => editDetailField("playListSelector", v)}
+            />
           </div>
+
+          {/* 详情试运行结果 */}
+          {detailTestResult && (
+            <div className="s2s-test-result" style={{ marginTop: 10 }}>
+              <div className="s2s-section-title" style={{ marginTop: 0 }}>
+                🧪 详情提取结果
+                <span className="s2s-badge">
+                  {summarizeDetail(detailTestResult)}
+                </span>
+              </div>
+              {detailTestResult.errors && (
+                <div className="s2s-notice" style={{ margin: "6px 0" }}>
+                  ⚠️ {detailTestResult.errors.join("; ")}
+                </div>
+              )}
+              {detailTestResult.playURL.length > 0 && detailTestResult.playURL[0].episodes.length > 0 && (
+                <details className="s2s-collapsible">
+                  <summary>
+                    剧集样本（{detailTestResult.playFrom[0]} · 共 {detailTestResult.playURL[0].episodes.length} 集）
+                  </summary>
+                  <div className="s2s-episode-list">
+                    {detailTestResult.playURL[0].episodes.slice(0, 6).map((ep, i) => (
+                      <div key={i} className="s2s-episode">
+                        <span>{ep.name || "?"}</span>
+                        <span className="s2s-tip-dim s2s-test-url">{shortURL(ep.url, 22)}</span>
+                      </div>
+                    ))}
+                    {detailTestResult.playURL[0].episodes.length > 6 && (
+                      <div className="s2s-tip-dim">...</div>
+                    )}
+                  </div>
+                </details>
+              )}
+            </div>
+          )}
+
           <div className="s2s-actions" style={{ marginTop: 10 }}>
             <button className="s2s-btn s2s-btn-ghost" onClick={learnDetail}>🔄 重新分析</button>
+            <button
+              className="s2s-btn s2s-btn-ghost"
+              onClick={runDetailTest}
+              disabled={testing || !state.detail?.titleSelector}
+            >
+              {testing ? "..." : "🧪 试运行"}
+            </button>
             <button className="s2s-btn s2s-btn-primary" onClick={() => setStep("media")}>
-              下一步 · 抓播放 →
+              下一步 →
             </button>
           </div>
         </section>
@@ -644,8 +785,29 @@ function Popup() {
             <div className="s2s-media-list">
               {media.slice(-8).map((m, i) => (
                 <div key={i} className="s2s-media-item">
-                  <span className="s2s-media-type">{m.type}</span>
-                  <span className="s2s-media-url">{shortURL(m.url, 34)}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="s2s-media-head">
+                      <span className="s2s-media-type">{m.type}</span>
+                      {m.tabURL && (
+                        <span className="s2s-tip-dim" title={m.tabURL}>
+                          from {shortURL(m.tabURL, 24)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="s2s-media-url" title={m.url}>{shortURL(m.url, 42)}</div>
+                  </div>
+                  <div className="s2s-media-actions">
+                    <button
+                      className="s2s-btn-mini"
+                      title="复制 URL"
+                      onClick={() => copyToClipboard(m.url)}
+                    >📋</button>
+                    <button
+                      className="s2s-btn-mini"
+                      title="在新标签试播"
+                      onClick={() => openInPlayer(m.url)}
+                    >▶</button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -750,17 +912,57 @@ function SampleCard({ s }: { s: SerializedSample }) {
 }
 
 function DetailField({
-  label, selector, onPick,
+  label, selector, sample, onPick, onEdit,
 }: {
-  label: string; selector?: string; onPick: () => void;
+  label: string;
+  selector?: string;
+  sample?: string;
+  onPick: () => void;
+  onEdit?: (val: string) => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(selector || "");
+  useEffect(() => { setDraft(selector || ""); }, [selector]);
+
   return (
     <div className={`s2s-detail-field ${selector ? "filled" : ""}`}>
       <div className="s2s-detail-label">{label}</div>
-      <div className="s2s-detail-value">
-        {selector ? <code>{selector}</code> : <span className="s2s-tip-dim">未识别</span>}
-      </div>
-      <button className="s2s-btn-mini" onClick={onPick}>{selector ? "改" : "手选"}</button>
+      {editing ? (
+        <>
+          <input
+            className="s2s-input s2s-input-sm"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="CSS 选择器 (可 && 属性)"
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { onEdit?.(draft.trim()); setEditing(false); }
+              if (e.key === "Escape") { setEditing(false); setDraft(selector || ""); }
+            }}
+          />
+          <button
+            className="s2s-btn-mini"
+            onClick={() => { onEdit?.(draft.trim()); setEditing(false); }}
+          >✓</button>
+        </>
+      ) : (
+        <>
+          <div className="s2s-detail-value">
+            {selector ? (
+              <>
+                <code title={selector}>{selector}</code>
+                {sample && <div className="s2s-detail-sample" title={sample}>→ {sample}</div>}
+              </>
+            ) : (
+              <span className="s2s-tip-dim">未识别</span>
+            )}
+          </div>
+          {onEdit && selector && (
+            <button className="s2s-btn-mini" onClick={() => setEditing(true)} title="改选择器">✎</button>
+          )}
+          <button className="s2s-btn-mini" onClick={onPick}>{selector ? "点选" : "手选"}</button>
+        </>
+      )}
     </div>
   );
 }

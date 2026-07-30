@@ -11,6 +11,7 @@ export type Message =
   | { type: "STOP_INSPECT" }
   | { type: "RECOMPUTE_BASE"; selector: string }
   | { type: "TEST_RULE"; rule: string }
+  | { type: "TEST_DETAIL_RULE"; input: import("./rule-runner").DetailRuleInput }
   // 手动点选模式（用户 hover 页面 → 点击选中）
   | { type: "START_PICK"; role: PickRole }
   | { type: "STOP_PICK" }
@@ -94,6 +95,7 @@ export interface CapturedMedia {
 export interface DetailSpec {
   detailURL?: string; // 用户当前所在的详情页 URL（用于回溯规则）
   titleSelector?: string;
+  picSelector?: string;
   descSelector?: string;
   playTabSelector?: string;
   playListSelector?: string;

@@ -561,6 +561,60 @@ code {
   text-align: center;
 }
 
+/* ==================== detail 试运行 & 编辑 ==================== */
+.s2s-input-sm {
+  font-size: 11px;
+  padding: 4px 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.s2s-detail-sample {
+  margin-top: 2px;
+  font-size: 10px;
+  color: #93c5fd;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s2s-episode-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 6px;
+  font-size: 11px;
+}
+
+.s2s-episode {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 3px 6px;
+  background: var(--s2s-bg);
+  border-radius: 3px;
+}
+
+/* ==================== media list 试播 ==================== */
+.s2s-media-item {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.s2s-media-head {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 10px;
+}
+
+.s2s-media-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
 /* ==================== 项目列表 ==================== */
 .s2s-project-list {
   display: flex;

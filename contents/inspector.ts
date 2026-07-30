@@ -12,7 +12,7 @@ import {
   type ListCandidate,
 } from "~lib/dom-analyzer";
 import { inferBaseInfo } from "~lib/base-inferrer";
-import { runOnePlusRule } from "~lib/rule-runner";
+import { runOnePlusRule, runDetailRule } from "~lib/rule-runner";
 import type {
   Message,
   PickRole,
@@ -581,6 +581,12 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
 
   if (msg.type === "TEST_RULE") {
     const result = runOnePlusRule(document, msg.rule);
+    sendResponse({ result });
+    return true;
+  }
+
+  if (msg.type === "TEST_DETAIL_RULE") {
+    const result = runDetailRule(document, msg.input);
     sendResponse({ result });
     return true;
   }
