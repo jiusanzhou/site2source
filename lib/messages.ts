@@ -31,6 +31,7 @@ export type Message =
   | { type: "GET_CAPTURED_XHR" }
   | { type: "CLEAR_CAPTURED_XHR" }
   | { type: "REPLAY_XHR"; xhr: CapturedXHR }
+  | { type: "OPEN_SIDEPANEL" }
   // 状态持久化
   | { type: "SAVE_STATE"; state: Partial<ProjectState> }
   | { type: "GET_STATE" }

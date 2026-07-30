@@ -44,6 +44,15 @@ import "./popup.css";
 
 // ==================== component ====================
 
+/** 判断当前 UI 是运行在 sidepanel 里还是 popup 里 */
+function isInSidePanel(): boolean {
+  try {
+    return window.location.pathname.includes("sidepanel");
+  } catch {
+    return false;
+  }
+}
+
 /** 把抓到的 URL 里的具体 type/page 参数替换成 {cate}/{page} 占位符 */
 function normalizeAPIURLForCate(url: string): string {
   return url
@@ -598,6 +607,20 @@ function Popup() {
           <div className="s2s-title">Site2Source</div>
           <div className="s2s-sub">{state.site?.host || "TVBox 源生成器"}</div>
         </div>
+        {!isInSidePanel() && (
+          <button
+            className="s2s-btn-mini"
+            onClick={async () => {
+              try {
+                await sendToBackground({ type: "OPEN_SIDEPANEL" });
+                window.close(); // 关掉 popup, 侧边栏已经开了
+              } catch (e) {
+                alert("打开侧边栏失败: " + (e as any).message);
+              }
+            }}
+            title="打开侧边栏 (点选元素时不会关闭)"
+          >📌</button>
+        )}
         <button
           className="s2s-btn-mini"
           onClick={() => setShowApi(true)}

@@ -30,7 +30,8 @@
       "webRequest",
       "webNavigation",
       "scripting",
-      "tabs"
+      "tabs",
+      "sidePanel"
     ],
     "host_permissions": [
       "<all_urls>"

@@ -501,3 +501,30 @@ chrome.runtime.onMessage.addListener((msg: Message | any, _sender, sendResponse)
 });
 
 console.log("[site2source] background ready (v0.2)");
+
+// ==================== Side Panel ====================
+
+// 默认关: 用户手动打开(popup 里点按钮). 打开后跟随 tab.
+chrome.sidePanel
+  ?.setPanelBehavior({ openPanelOnActionClick: false })
+  .catch(() => {});
+
+// popup 发消息触发打开侧边栏
+chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
+  if (msg?.type === "OPEN_SIDEPANEL") {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tab = tabs[0];
+      if (!tab?.id || !tab?.windowId) {
+        sendResponse({ ok: false });
+        return;
+      }
+      // sidePanel.open 只能在用户手势的直接响应下调用
+      // 从 popup 内消息里调用属于用户手势, 有效
+      chrome.sidePanel
+        .open({ tabId: tab.id, windowId: tab.windowId })
+        .then(() => sendResponse({ ok: true }))
+        .catch((e) => sendResponse({ ok: false, error: String(e) }));
+    });
+    return true;
+  }
+});

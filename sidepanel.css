@@ -1,0 +1,36 @@
+/**
+ * Side Panel 样式 —— @import popup 的样式再叠加 sidepanel 专属覆盖.
+ * Plasmo 会自动把同名 sidepanel.css 打到 sidepanel.html 里.
+ */
+@import "./popup.css";
+
+.s2s-sidepanel-root {
+  width: 100%;
+  min-height: 100vh;
+}
+
+.s2s-sidepanel-root .s2s-popup,
+.s2s-sidepanel-root .s2s-root {
+  width: 100% !important;
+  min-width: 320px;
+  max-width: none;
+}
+
+.s2s-sidepanel-root .s2s-modal-backdrop {
+  position: fixed;
+  inset: 0;
+}
+
+.s2s-sidepanel-root .s2s-modal {
+  max-width: 90vw !important;
+  max-height: 80vh !important;
+}
+
+.s2s-sidepanel-hint {
+  padding: 6px 12px;
+  background: linear-gradient(90deg, rgba(59,130,246,0.15), rgba(59,130,246,0.05));
+  border-bottom: 1px solid rgba(59,130,246,0.2);
+  font-size: 11px;
+  color: #93c5fd;
+  text-align: center;
+}
