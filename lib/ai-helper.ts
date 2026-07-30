@@ -1,28 +1,166 @@
 /**
- * AI 辅助识别 - 让 LLM 看页面 HTML 猜选择器
+ * AI Provider 抽象 —— 支持三种模式:
+ *   1. chrome-ai     : Chrome 内置 Gemini Nano (window.LanguageModel API)
+ *   2. openrouter-free : OpenRouter 免费模型 (需要 key 但模型 :free)
+ *   3. byok          : 用户自定义 base URL + model + key
  *
- * 用 OpenRouter API 走 DeepSeek Chat (便宜好用, 结构化选择器识别足够)
- * User key + model 存 chrome.storage.local
+ * 存储在 chrome.storage.local 里的字段:
+ *   s2s:aiProvider: 'chrome-ai' | 'openrouter-free' | 'byok'
+ *   s2s:aiKey     : API Key (openrouter-free + byok 用)
+ *   s2s:aiModel   : model id (byok 用)
+ *   s2s:aiBaseURL : API base URL (byok 用)
+ *
+ * legacy 兼容: 老版本 s2s:aiKey 会被读为 openrouter-free 或 byok
  */
 
-const KEY_AI_KEY = "s2s:aiKey";
-const KEY_AI_MODEL = "s2s:aiModel";
-const DEFAULT_MODEL = "deepseek/deepseek-chat";
+export type AIProvider = "chrome-ai" | "openrouter-free" | "byok";
 
-export async function getAIConfig(): Promise<{ key: string; model: string }> {
-  const r = await chrome.storage.local.get([KEY_AI_KEY, KEY_AI_MODEL]);
+export interface AIConfig {
+  provider: AIProvider;
+  key: string;
+  model: string;
+  baseURL: string;
+}
+
+// 各 provider 的默认设置
+const DEFAULTS: Record<AIProvider, Partial<AIConfig>> = {
+  "chrome-ai": {
+    model: "gemini-nano",
+    baseURL: "",
+  },
+  "openrouter-free": {
+    model: "deepseek/deepseek-chat-v3-0324:free",
+    baseURL: "https://openrouter.ai/api/v1",
+  },
+  byok: {
+    model: "deepseek/deepseek-chat",
+    baseURL: "https://openrouter.ai/api/v1",
+  },
+};
+
+// OpenRouter 上比较靠谱的免费模型 (按识别 CSS 选择器能力排序)
+export const FREE_MODELS = [
+  { id: "deepseek/deepseek-chat-v3-0324:free", name: "DeepSeek V3 (免费)", note: "推荐, 中文好, JSON 输出稳" },
+  { id: "deepseek/deepseek-r1:free", name: "DeepSeek R1 (免费)", note: "推理强, 慢一些" },
+  { id: "meta-llama/llama-3.3-70b-instruct:free", name: "Llama 3.3 70B (免费)", note: "通用强" },
+  { id: "google/gemini-2.0-flash-exp:free", name: "Gemini 2.0 Flash (免费)", note: "多模态" },
+  { id: "qwen/qwen-2.5-coder-32b-instruct:free", name: "Qwen 2.5 Coder (免费)", note: "代码/结构化强" },
+];
+
+// ============ 配置读写 ============
+
+const KEY_PROVIDER = "s2s:aiProvider";
+const KEY_API_KEY = "s2s:aiKey";
+const KEY_MODEL = "s2s:aiModel";
+const KEY_BASE_URL = "s2s:aiBaseURL";
+
+export async function getAIConfig(): Promise<AIConfig> {
+  const r = await chrome.storage.local.get([
+    KEY_PROVIDER,
+    KEY_API_KEY,
+    KEY_MODEL,
+    KEY_BASE_URL,
+  ]);
+  const provider = (r[KEY_PROVIDER] || "openrouter-free") as AIProvider;
+  const d = DEFAULTS[provider];
   return {
-    key: r[KEY_AI_KEY] || "",
-    model: r[KEY_AI_MODEL] || DEFAULT_MODEL,
+    provider,
+    key: r[KEY_API_KEY] || "",
+    model: r[KEY_MODEL] || d.model || "",
+    baseURL: r[KEY_BASE_URL] || d.baseURL || "",
   };
 }
 
-export async function hasAIConfig(): Promise<boolean> {
-  const { key } = await getAIConfig();
-  return !!key;
+export async function setAIConfig(patch: Partial<AIConfig>) {
+  const kv: Record<string, string> = {};
+  if (patch.provider !== undefined) kv[KEY_PROVIDER] = patch.provider;
+  if (patch.key !== undefined) kv[KEY_API_KEY] = patch.key;
+  if (patch.model !== undefined) kv[KEY_MODEL] = patch.model;
+  if (patch.baseURL !== undefined) kv[KEY_BASE_URL] = patch.baseURL;
+  await chrome.storage.local.set(kv);
 }
 
-/** AI 识别的返回 —— 每个字段 CSS 选择器 (含属性表达式) */
+/** 当前 provider 配置齐了吗 (能不能真的调用 AI) */
+export async function hasAIConfig(): Promise<boolean> {
+  const c = await getAIConfig();
+  if (c.provider === "chrome-ai") {
+    return await isChromeAIAvailable();
+  }
+  return !!c.key;
+}
+
+// ============ Chrome AI 检测 ============
+
+/**
+ * 检查 Chrome 内置 AI 是否可用
+ * Chrome 138+ 稳定, Canary 更靠谱
+ * API 变过几次: window.ai.assistant / window.ai.languageModel / window.LanguageModel
+ */
+export async function isChromeAIAvailable(): Promise<boolean> {
+  try {
+    // 最新 API (Chrome 138+): window.LanguageModel
+    if (typeof (globalThis as any).LanguageModel !== "undefined") {
+      const avail = await (globalThis as any).LanguageModel.availability?.();
+      // "available" / "downloadable" / "downloading" / "unavailable"
+      return avail === "available" || avail === "downloadable" || avail === "downloading";
+    }
+    // 老 API: window.ai.languageModel / window.ai.assistant
+    const ai = (globalThis as any).ai;
+    if (ai?.languageModel) {
+      const caps = await ai.languageModel.capabilities?.();
+      return caps?.available === "readily" || caps?.available === "after-download";
+    }
+    if (ai?.assistant) {
+      const caps = await ai.assistant.capabilities?.();
+      return caps?.available === "readily" || caps?.available === "after-download";
+    }
+  } catch (e) {
+    console.warn("[ai] Chrome AI detect failed", e);
+  }
+  return false;
+}
+
+/** 返回 Chrome AI 的详细状态 (给设置页显示) */
+export async function chromeAIStatus(): Promise<{
+  available: boolean;
+  state: "available" | "downloadable" | "downloading" | "unavailable" | "no-api";
+  message: string;
+}> {
+  try {
+    if (typeof (globalThis as any).LanguageModel !== "undefined") {
+      const s = await (globalThis as any).LanguageModel.availability?.();
+      const map: Record<string, string> = {
+        available: "✅ 已就绪, 可直接用",
+        downloadable: "⏬ 首次用会自动下载模型 (~2GB)",
+        downloading: "⏳ 模型下载中...",
+        unavailable: "❌ 此设备不支持 (需要 Chrome 138+ / 4GB VRAM)",
+      };
+      return {
+        available: s === "available" || s === "downloadable" || s === "downloading",
+        state: s,
+        message: map[s] || `未知状态: ${s}`,
+      };
+    }
+    const ai = (globalThis as any).ai;
+    if (ai?.languageModel || ai?.assistant) {
+      const api = ai.languageModel || ai.assistant;
+      const caps = await api.capabilities?.();
+      return {
+        available: caps?.available === "readily" || caps?.available === "after-download",
+        state: caps?.available === "readily" ? "available" : "downloadable",
+        message: `旧版 API (${caps?.available})`,
+      };
+    }
+  } catch {}
+  return {
+    available: false,
+    state: "no-api",
+    message: "❌ 浏览器不支持 (需 Chrome 138+, 或去 chrome://flags 开启 Prompt API)",
+  };
+}
+
+// ============ 结构 ============
+
 export interface AIFieldResult {
   titleSelector?: string;
   picSelector?: string;
@@ -30,93 +168,127 @@ export interface AIFieldResult {
   playTabSelector?: string;
   playListSelector?: string;
   listContainerSelector?: string;
-  listItemTag?: string;         // 卡片标签, 如 li / div / a
-  reasoning?: string;    // 简短说明
+  listItemTag?: string;
+  reasoning?: string;
   errors?: string[];
 }
 
-interface AIRawResp {
-  choices?: { message?: { content?: string } }[];
-  error?: { message?: string };
+// ============ 主入口 ============
+
+async function callChromeAI(system: string, user: string): Promise<string> {
+  const LM = (globalThis as any).LanguageModel;
+  const ai = (globalThis as any).ai;
+
+  if (typeof LM !== "undefined") {
+    const session = await LM.create({
+      initialPrompts: [{ role: "system", content: system }],
+    });
+    try {
+      return await session.prompt(user);
+    } finally {
+      session.destroy?.();
+    }
+  }
+
+  const api = ai?.languageModel || ai?.assistant;
+  if (!api) throw new Error("Chrome AI API 不可用");
+
+  const session = await api.create({ systemPrompt: system });
+  try {
+    return await session.prompt(user);
+  } finally {
+    session.destroy?.();
+  }
 }
 
-/**
- * 通用 AI 调用 - 让 AI 看 HTML 给字段选择器
- * @param mode 'detail' | 'list'  区分详情页/列表页 prompt
- */
+async function callHTTP(
+  cfg: AIConfig,
+  system: string,
+  user: string,
+): Promise<string> {
+  const url = cfg.baseURL.replace(/\/+$/, "") + "/chat/completions";
+  const r = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${cfg.key}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://github.com/jiusanzhou/site2source-ext",
+      "X-Title": "Site2Source Chrome Extension",
+    },
+    body: JSON.stringify({
+      model: cfg.model,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      temperature: 0.1,
+      response_format: { type: "json_object" },
+      max_tokens: 800,
+    }),
+  });
+
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(`API ${r.status}: ${t.slice(0, 200)}`);
+  }
+  const data: any = await r.json();
+  if (data.error) throw new Error(data.error.message || "AI 返回错误");
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error("AI 返回空");
+  return content;
+}
+
 async function askAI(
   mode: "detail" | "list",
   htmlSnippet: string,
   pageURL: string,
   existing?: Partial<AIFieldResult>,
 ): Promise<AIFieldResult> {
-  const { key, model } = await getAIConfig();
-  if (!key) {
-    return { errors: ["未配置 AI key, 请在设置里填 OpenRouter Key"] };
-  }
-
-  const prompt = mode === "list"
+  const cfg = await getAIConfig();
+  const system = SYSTEM_PROMPT;
+  const user = mode === "list"
     ? buildListPrompt(htmlSnippet, pageURL, existing)
     : buildDetailPrompt(htmlSnippet, pageURL, existing);
 
+  let content: string;
   try {
-    const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${key}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com/jiusanzhou/site2source-ext",
-        "X-Title": "Site2Source Chrome Extension",
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: prompt },
-        ],
-        temperature: 0.1,
-        response_format: { type: "json_object" },
-        max_tokens: 800,
-      }),
-    });
-
-    if (!r.ok) {
-      const t = await r.text();
-      return { errors: [`AI 请求失败 (${r.status}): ${t.slice(0, 200)}`] };
-    }
-
-    const data: AIRawResp = await r.json();
-    if (data.error) return { errors: [`AI 错误: ${data.error.message}`] };
-
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) return { errors: ["AI 返回空"] };
-
-    let parsed: any;
-    try {
-      parsed = JSON.parse(content);
-    } catch {
-      const m = content.match(/\{[\s\S]*\}/);
-      if (m) {
-        try { parsed = JSON.parse(m[0]); }
-        catch { return { errors: [`AI 返回非 JSON: ${content.slice(0, 200)}`] }; }
-      } else {
-        return { errors: [`AI 返回非 JSON: ${content.slice(0, 200)}`] };
+    if (cfg.provider === "chrome-ai") {
+      if (!(await isChromeAIAvailable())) {
+        return { errors: ["Chrome 内置 AI 不可用, 请去设置换 Provider"] };
       }
+      content = await callChromeAI(system, user);
+    } else {
+      if (!cfg.key) return { errors: ["未配置 API Key, 请去 ⚙ 设置里填"] };
+      content = await callHTTP(cfg, system, user);
     }
-
-    return {
-      titleSelector: cleanSel(parsed.titleSelector),
-      picSelector: cleanSel(parsed.picSelector),
-      descSelector: cleanSel(parsed.descSelector),
-      playTabSelector: cleanSel(parsed.playTabSelector),
-      playListSelector: cleanSel(parsed.playListSelector),
-      listContainerSelector: cleanSel(parsed.listContainerSelector),
-      listItemTag: cleanSel(parsed.listItemTag),
-      reasoning: parsed.reasoning,
-    };
   } catch (e: any) {
-    return { errors: [`网络错误: ${e.message}`] };
+    return { errors: [e.message || "AI 调用失败"] };
   }
+
+  // 解析 JSON
+  let parsed: any;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    const m = content.match(/\{[\s\S]*\}/);
+    if (m) {
+      try { parsed = JSON.parse(m[0]); }
+      catch { return { errors: [`AI 返回非 JSON: ${content.slice(0, 200)}`] }; }
+    } else {
+      return { errors: [`AI 返回非 JSON: ${content.slice(0, 200)}`] };
+    }
+  }
+
+  return {
+    titleSelector: cleanSel(parsed.titleSelector),
+    picSelector: cleanSel(parsed.picSelector),
+    descSelector: cleanSel(parsed.descSelector),
+    playTabSelector: cleanSel(parsed.playTabSelector),
+    playListSelector: cleanSel(parsed.playListSelector),
+    listContainerSelector: cleanSel(parsed.listContainerSelector),
+    listItemTag: cleanSel(parsed.listItemTag),
+    reasoning: parsed.reasoning,
+  };
 }
 
 export async function askAIDetail(
@@ -134,6 +306,8 @@ export async function askAIList(
 ): Promise<AIFieldResult> {
   return askAI("list", htmlSnippet, pageURL, existing);
 }
+
+// ============ helpers ============
 
 function cleanSel(s: any): string | undefined {
   if (typeof s !== "string") return undefined;

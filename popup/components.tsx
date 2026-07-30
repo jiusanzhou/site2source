@@ -10,6 +10,13 @@ import type {
 } from "~lib/messages";
 import { hasHostMismatch, resolveHost } from "~lib/base-inferrer";
 import { getGithubToken, setGithubToken } from "~lib/gist-uploader";
+import {
+  chromeAIStatus,
+  FREE_MODELS,
+  getAIConfig,
+  setAIConfig,
+  type AIProvider,
+} from "~lib/ai-helper";
 
 export type Step = "start" | "listPick" | "listReview" | "detail" | "media" | "done";
 
@@ -288,25 +295,46 @@ export function BasePanel({
 // ============ 设置面板 ============
 export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const [token, setToken] = useState("");
-  const [aiKey, setAIKey] = useState("");
-  const [aiModel, setAIModel] = useState("");
+  const [provider, setProvider] = useState<AIProvider>("openrouter-free");
+  const [key, setKey] = useState("");
+  const [model, setModel] = useState("");
+  const [baseURL, setBaseURL] = useState("");
+  const [chromeAI, setChromeAI] = useState<{ available: boolean; message: string }>({
+    available: false,
+    message: "检查中...",
+  });
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     getGithubToken().then(setToken);
-    chrome.storage.local
-      .get(["s2s:aiKey", "s2s:aiModel"])
-      .then((r) => {
-        setAIKey(r["s2s:aiKey"] || "");
-        setAIModel(r["s2s:aiModel"] || "deepseek/deepseek-chat");
-      });
+    getAIConfig().then((c) => {
+      setProvider(c.provider);
+      setKey(c.key);
+      setModel(c.model);
+      setBaseURL(c.baseURL);
+    });
+    chromeAIStatus().then((s) => setChromeAI({ available: s.available, message: s.message }));
   }, []);
+
+  const changeProvider = async (p: AIProvider) => {
+    setProvider(p);
+    // 切 provider 时预填默认值 (如果字段是空的)
+    const defaults: Record<AIProvider, { model: string; baseURL: string }> = {
+      "chrome-ai": { model: "gemini-nano", baseURL: "" },
+      "openrouter-free": { model: "deepseek/deepseek-chat-v3-0324:free", baseURL: "https://openrouter.ai/api/v1" },
+      byok: { model: model || "deepseek/deepseek-chat", baseURL: baseURL || "https://openrouter.ai/api/v1" },
+    };
+    setModel(defaults[p].model);
+    setBaseURL(defaults[p].baseURL);
+  };
 
   const save = async () => {
     await setGithubToken(token.trim());
-    await chrome.storage.local.set({
-      "s2s:aiKey": aiKey.trim(),
-      "s2s:aiModel": aiModel.trim() || "deepseek/deepseek-chat",
+    await setAIConfig({
+      provider,
+      key: key.trim(),
+      model: model.trim(),
+      baseURL: baseURL.trim(),
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 1200);
@@ -317,22 +345,140 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       <div className="s2s-modal" onClick={(e) => e.stopPropagation()}>
         <div className="s2s-modal-header">
           <b>⚙ 设置</b>
-          <button className="s2s-btn-mini" onClick={onClose}>
-            关闭
-          </button>
+          <button className="s2s-btn-mini" onClick={onClose}>关闭</button>
         </div>
         <div className="s2s-modal-body">
+          {/* AI Provider */}
           <div className="s2s-section-title" style={{ marginBottom: 6 }}>
-            GitHub Token
+            🤖 AI 提供商
+          </div>
+
+          <div className="s2s-provider-tabs">
+            <button
+              className={`s2s-provider-tab ${provider === "chrome-ai" ? "active" : ""} ${!chromeAI.available ? "disabled" : ""}`}
+              onClick={() => chromeAI.available && changeProvider("chrome-ai")}
+              disabled={!chromeAI.available}
+              title={chromeAI.message}
+            >
+              🌐 Chrome 内置
+              <span className="s2s-tab-note">本地免费</span>
+            </button>
+            <button
+              className={`s2s-provider-tab ${provider === "openrouter-free" ? "active" : ""}`}
+              onClick={() => changeProvider("openrouter-free")}
+            >
+              🆓 免费模型
+              <span className="s2s-tab-note">需注册</span>
+            </button>
+            <button
+              className={`s2s-provider-tab ${provider === "byok" ? "active" : ""}`}
+              onClick={() => changeProvider("byok")}
+            >
+              🔑 BYOK
+              <span className="s2s-tab-note">带自己 key</span>
+            </button>
+          </div>
+
+          {provider === "chrome-ai" && (
+            <div className="s2s-provider-body">
+              <p className="s2s-tip s2s-tip-dim">
+                Chrome 138+ 内置的 <b>Gemini Nano</b> 模型 (本地运行, 隐私最好, 完全免费)。
+              </p>
+              <div
+                className={`s2s-notice ${chromeAI.available ? "" : "s2s-notice-err"}`}
+                style={{ margin: 0 }}
+              >
+                {chromeAI.message}
+              </div>
+              {!chromeAI.available && (
+                <p className="s2s-tip s2s-tip-dim" style={{ marginTop: 8 }}>
+                  开启步骤:
+                  <br />1. Chrome 138+ (Dev/Canary 更稳)
+                  <br />2. <code>chrome://flags/#prompt-api-for-gemini-nano</code> → Enabled
+                  <br />3. <code>chrome://flags/#optimization-guide-on-device-model</code> → Enabled BypassPerfRequirement
+                  <br />4. 重启 Chrome, 首次会自动下载 ~2GB 模型
+                </p>
+              )}
+            </div>
+          )}
+
+          {provider === "openrouter-free" && (
+            <div className="s2s-provider-body">
+              <p className="s2s-tip s2s-tip-dim">
+                <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">
+                  OpenRouter
+                </a>{" "}
+                的免费模型 (:free 后缀)。免费账号限流 20 req/min · 200 req/day, 但对本扩展绰绰有余。
+              </p>
+              <input
+                className="s2s-input"
+                type="password"
+                value={key}
+                onChange={(e) => setKey(e.target.value)}
+                placeholder="sk-or-v1-..."
+              />
+              <select
+                className="s2s-input"
+                style={{ marginTop: 6 }}
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+              >
+                {FREE_MODELS.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} — {m.note}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {provider === "byok" && (
+            <div className="s2s-provider-body">
+              <p className="s2s-tip s2s-tip-dim">
+                自定义任意 OpenAI 兼容 API (OpenRouter / Groq / Cerebras / DeepSeek / 自建等)。
+              </p>
+              <input
+                className="s2s-input"
+                value={baseURL}
+                onChange={(e) => setBaseURL(e.target.value)}
+                placeholder="Base URL (如 https://openrouter.ai/api/v1)"
+              />
+              <input
+                className="s2s-input"
+                style={{ marginTop: 6 }}
+                type="password"
+                value={key}
+                onChange={(e) => setKey(e.target.value)}
+                placeholder="API Key"
+              />
+              <input
+                className="s2s-input"
+                style={{ marginTop: 6 }}
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                placeholder="Model ID (如 deepseek/deepseek-chat)"
+              />
+              <details className="s2s-collapsible" style={{ marginTop: 6 }}>
+                <summary style={{ fontSize: 11 }}>💡 常用 provider 参考</summary>
+                <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 6 }}>
+                  <div>• <b>OpenRouter</b>: https://openrouter.ai/api/v1 · 所有模型</div>
+                  <div>• <b>Groq</b>: https://api.groq.com/openai/v1 · Llama/Mixtral, 30 req/min 免费</div>
+                  <div>• <b>Cerebras</b>: https://api.cerebras.ai/v1 · Llama 3.3, 免费</div>
+                  <div>• <b>DeepSeek</b>: https://api.deepseek.com/v1 · 官方, 便宜</div>
+                  <div>• <b>SiliconFlow</b>: https://api.siliconflow.cn/v1 · 国内快</div>
+                </div>
+              </details>
+            </div>
+          )}
+
+          {/* GitHub Token */}
+          <div className="s2s-section-title" style={{ marginTop: 14, marginBottom: 6 }}>
+            📤 GitHub Token
           </div>
           <p className="s2s-tip s2s-tip-dim">
             上传到 Gist 需要{" "}
-            <a
-              href="https://github.com/settings/tokens?type=beta"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Personal Access Token
+            <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noreferrer">
+              PAT
             </a>
             （勾选 <code>gist</code> 权限）
           </p>
@@ -342,31 +488,6 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
             value={token}
             onChange={(e) => setToken(e.target.value)}
             placeholder="ghp_... 或 github_pat_..."
-          />
-
-          <div className="s2s-section-title" style={{ marginTop: 14, marginBottom: 6 }}>
-            🤖 AI 辅助 (OpenRouter)
-          </div>
-          <p className="s2s-tip s2s-tip-dim">
-            识别不到字段时用 AI 帮忙看 HTML。填{" "}
-            <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">
-              OpenRouter Key
-            </a>
-            。默认 DeepSeek Chat（便宜，几乎免费）。
-          </p>
-          <input
-            className="s2s-input"
-            type="password"
-            value={aiKey}
-            onChange={(e) => setAIKey(e.target.value)}
-            placeholder="sk-or-v1-..."
-          />
-          <input
-            className="s2s-input"
-            style={{ marginTop: 6 }}
-            value={aiModel}
-            onChange={(e) => setAIModel(e.target.value)}
-            placeholder="deepseek/deepseek-chat"
           />
 
           <div className="s2s-actions" style={{ marginTop: 12 }}>
