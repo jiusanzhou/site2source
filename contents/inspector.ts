@@ -17,6 +17,7 @@ import type {
   SerializedCandidate,
   SerializedSample,
   DetailSpec,
+  HomeSpec,
 } from "~lib/messages";
 
 export const config = {
@@ -397,6 +398,140 @@ function findEpisodeContainer(): Element | null {
   return best;
 }
 
+// ==================== 首页 / 分类识别 ====================
+
+/** 常见影视分类词（用于识别分类导航） */
+const CATEGORY_KEYWORDS = [
+  "电影", "电视剧", "综艺", "动漫", "动画", "纪录片", "短剧",
+  "港剧", "台剧", "日剧", "韩剧", "美剧", "英剧",
+  "喜剧", "动作", "爱情", "科幻", "恐怖", "悬疑", "战争", "剧情",
+  "movie", "tv", "drama", "anime", "variety", "show",
+];
+
+function inferHomeInfo(): HomeSpec {
+  const spec: HomeSpec = {};
+
+  // 1. 分类导航：找一批 <a>，text 命中分类词，公共父级
+  const links = Array.from(document.querySelectorAll("a"));
+  const catLinks: { name: string; url: string; el: HTMLAnchorElement }[] = [];
+  for (const a of links) {
+    const txt = (a.textContent || "").trim();
+    if (!txt || txt.length > 6) continue;
+    if (CATEGORY_KEYWORDS.some((kw) => txt.includes(kw) || txt.toLowerCase() === kw)) {
+      const href = a.getAttribute("href");
+      if (!href || href === "#" || href.startsWith("javascript:")) continue;
+      catLinks.push({ name: txt, url: new URL(href, location.href).toString(), el: a });
+    }
+  }
+
+  // 找一个公共父级，包含最多分类链接
+  if (catLinks.length >= 2) {
+    const parentCount = new Map<Element, typeof catLinks>();
+    for (const link of catLinks) {
+      let p: Element | null = link.el.parentElement;
+      let depth = 0;
+      while (p && depth < 5) {
+        if (!parentCount.has(p)) parentCount.set(p, []);
+        parentCount.get(p)!.push(link);
+        p = p.parentElement;
+        depth++;
+      }
+    }
+    // 取包含最多分类且节点最深的父级
+    let bestParent: Element | null = null;
+    let bestCount = 0;
+    for (const [p, items] of parentCount) {
+      // dedup
+      const uniq = Array.from(new Map(items.map((i) => [i.name, i])).values());
+      if (uniq.length > bestCount) {
+        bestCount = uniq.length;
+        bestParent = p;
+      }
+    }
+    if (bestParent && bestCount >= 2) {
+      const finalCats = catLinks.filter((c) => bestParent!.contains(c.el));
+      // dedup by name
+      const seen = new Set<string>();
+      spec.categories = finalCats
+        .filter((c) => {
+          if (seen.has(c.name)) return false;
+          seen.add(c.name);
+          return true;
+        })
+        .slice(0, 20)
+        .map((c) => ({ name: c.name, url: c.url }));
+
+      // 尝试识别 URL pattern：找到 URL 里的分类 id
+      spec.categoryURLPattern = inferCategoryPattern(spec.categories);
+    }
+  }
+
+  // 2. 搜索识别：找 <form> 里有 input[name=wd|keyword|q|search|s]
+  const forms = Array.from(document.querySelectorAll("form"));
+  for (const f of forms) {
+    const inputs = Array.from(f.querySelectorAll("input"));
+    const searchInput = inputs.find((i) => {
+      const n = (i.name || "").toLowerCase();
+      const t = (i.type || "").toLowerCase();
+      const p = (i.placeholder || "").toLowerCase();
+      return (
+        (n && /(wd|keyword|q|search|s|key|word)/.test(n)) ||
+        t === "search" ||
+        /search|搜索|查找|关键词/.test(p)
+      );
+    });
+    if (searchInput) {
+      const action = f.getAttribute("action") || location.pathname;
+      const method = (f.getAttribute("method") || "get").toLowerCase();
+      const param = searchInput.name || "wd";
+      try {
+        const actionURL = new URL(action, location.href);
+        if (method === "get") {
+          spec.searchAction = `${actionURL.origin}${actionURL.pathname}?${param}={wd}`;
+        } else {
+          spec.searchAction = actionURL.toString();
+        }
+        spec.searchParam = param;
+        break;
+      } catch {}
+    }
+  }
+
+  return spec;
+}
+
+/** 从一批分类 URL 里推断路径模板，如 /vodtype/1.html → /vodtype/{class}.html */
+function inferCategoryPattern(cats: { name: string; url: string }[]): string | undefined {
+  if (cats.length < 2) return undefined;
+  const paths = cats.map((c) => {
+    try { return new URL(c.url).pathname; } catch { return c.url; }
+  });
+  // 找出所有 path 里第一个不同的数字段
+  const segments = paths.map((p) => p.split("/").filter(Boolean));
+  const minLen = Math.min(...segments.map((s) => s.length));
+  let diffIdx = -1;
+  for (let i = 0; i < minLen; i++) {
+    const vals = new Set(segments.map((s) => s[i]));
+    if (vals.size > 1) {
+      // 检查是不是纯数字或"数字.html"
+      const allNumeric = Array.from(vals).every((v) => /^\d+(\.html?)?$/.test(v));
+      if (allNumeric) {
+        diffIdx = i;
+        break;
+      }
+    }
+  }
+  if (diffIdx === -1) return undefined;
+
+  const template = segments[0].slice();
+  const original = template[diffIdx];
+  // 保留 .html 后缀
+  const ext = original.match(/\.html?$/i);
+  template[diffIdx] = ext ? `{class}${ext[0]}` : "{class}";
+  return "/" + template.join("/");
+}
+
+
 // ==================== 消息路由 ====================
 
 chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
@@ -453,6 +588,12 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
     if (spec.descSelector) tryHighlight(spec.descSelector, 1, "简介");
     if (spec.playTabSelector) tryHighlight(spec.playTabSelector, 2, "线路");
     if (spec.playListSelector) tryHighlight(spec.playListSelector, 3, "剧集");
+    sendResponse({ site: extractSiteInfo(), spec });
+    return true;
+  }
+
+  if (msg.type === "GET_HOME_INFO") {
+    const spec = inferHomeInfo();
     sendResponse({ site: extractSiteInfo(), spec });
     return true;
   }

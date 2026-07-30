@@ -357,3 +357,113 @@ code {
   color: var(--s2s-muted);
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
+
+/* ==================== V0.3 additions ==================== */
+.s2s-home-summary {
+  display: flex;
+  gap: 6px;
+  padding: 8px 16px 0;
+  flex-wrap: wrap;
+}
+
+.s2s-home-info {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+}
+
+.s2s-collapsible {
+  margin-bottom: 6px;
+}
+
+.s2s-collapsible summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--s2s-muted);
+  padding: 4px 0;
+  user-select: none;
+}
+.s2s-collapsible summary:hover { color: var(--s2s-fg); }
+
+.s2s-cat-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 0;
+}
+
+.s2s-cat-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--s2s-panel);
+  border-radius: 3px;
+  font-size: 11px;
+  color: var(--s2s-fg);
+}
+
+.s2s-url-box {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 8px;
+  background: var(--s2s-panel);
+  border-radius: 4px;
+  margin-top: 6px;
+}
+
+.s2s-url-box code {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+}
+
+/* ==================== Modal / Settings ==================== */
+.s2s-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.s2s-modal {
+  background: var(--s2s-bg);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  width: 100%;
+  max-width: 340px;
+  overflow: hidden;
+}
+
+.s2s-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+}
+
+.s2s-modal-body {
+  padding: 14px;
+}
+
+.s2s-modal-body a {
+  color: #93c5fd;
+}
+
+.s2s-input {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--s2s-panel);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 5px;
+  color: var(--s2s-fg);
+  font: 12px "SF Mono", Menlo, monospace;
+  outline: none;
+}
+.s2s-input:focus { border-color: var(--s2s-primary); }

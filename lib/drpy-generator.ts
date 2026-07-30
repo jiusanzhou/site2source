@@ -1,10 +1,11 @@
 /**
- * Drpy T4 爬虫代码生成器
+ * Drpy T4 爬虫代码生成器（V0.3）
  */
 
 import type {
   CapturedMedia,
   DetailSpec,
+  HomeSpec,
   SerializedSample,
 } from "./messages";
 
@@ -23,6 +24,9 @@ export interface GenerateInput {
   // 详情（可选）
   detail?: DetailSpec;
 
+  // 首页/分类（可选）
+  home?: HomeSpec;
+
   // 抓到的媒体（可选）
   media?: CapturedMedia[];
 }
@@ -31,23 +35,46 @@ export function generateDrpySpider(input: GenerateInput): string {
   const lines: string[] = [];
   lines.push(`// site2source-ext auto-generated Drpy T4 spider for ${input.host}`);
   lines.push(`// Generated: ${new Date().toISOString()}`);
-  lines.push(`// ⚠️ 分类/搜索/播放解析可能需要人工微调`);
+  lines.push(`// Site: ${input.baseURL}`);
   lines.push("");
 
   const detail = input.detail || {};
+  const home = input.home || {};
   const hasDetail = !!(detail.titleSelector || detail.playListSelector);
   const media = input.media || [];
   const hasMedia = media.length > 0;
+
+  // 分类
+  const cats = home.categories || [];
+  const className = cats.length > 0
+    ? cats.map((c) => c.name).join("&")
+    : "电影&电视剧&综艺&动漫";
+  const classURL = cats.length > 0
+    ? cats.map((c, i) => extractClassId(c.url) || String(i + 1)).join("&")
+    : "1&2&3&4";
+  const urlPattern = home.categoryURLPattern
+    ? home.categoryURLPattern.replace("{class}", "{cate}") + "?page={page}"
+    : "/vodtype/{cate}-{page}.html";
 
   lines.push(`globalThis.rule = {`);
   lines.push(`  title: '${escapeJS(input.siteName)}',`);
   lines.push(`  host: '${input.baseURL}',`);
   lines.push(`  homeUrl: '/',`);
-  lines.push(`  url: '/',                          // TODO: 分类页 URL 模板 (fyclass/fypage)`);
+  lines.push(`  url: '${urlPattern.replace("{cate}", "fyclass").replace("{page}", "fypage")}',`);
   lines.push(`  detailUrl: '',`);
-  lines.push(`  searchUrl: '',                     // TODO: 搜索 URL 模板`);
-  lines.push(`  searchable: 0,`);
-  lines.push(`  quickSearch: 0,`);
+
+  // 搜索
+  if (home.searchAction) {
+    const searchTmpl = home.searchAction.replace("{wd}", "**").replace(/^https?:\/\/[^/]+/, "");
+    lines.push(`  searchUrl: '${searchTmpl};post',  // TODO: 若为 GET 改为不带 ';post'`);
+    lines.push(`  searchable: 1,`);
+    lines.push(`  quickSearch: 1,`);
+  } else {
+    lines.push(`  searchUrl: '',                     // TODO: 搜索 URL 模板`);
+    lines.push(`  searchable: 0,`);
+    lines.push(`  quickSearch: 0,`);
+  }
+
   lines.push(`  filterable: 0,`);
   lines.push(`  headers: {`);
   lines.push(`    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',`);
@@ -55,83 +82,177 @@ export function generateDrpySpider(input: GenerateInput): string {
   lines.push(`  },`);
   lines.push(`  timeout: 5000,`);
   lines.push("");
-  lines.push(`  // 首页分类（TODO: 手动填分类导航）`);
-  lines.push(`  class_name: '电影&电视剧',`);
-  lines.push(`  class_url:  '1&2',`);
+
+  lines.push(`  // 首页分类${cats.length > 0 ? "（site2source 自动识别）" : "（TODO: 手动填）"}`);
+  lines.push(`  class_name: '${escapeJS(className)}',`);
+  lines.push(`  class_url:  '${escapeJS(classURL)}',`);
   lines.push("");
+
   lines.push(`  // 一级列表（site2source 自动识别）`);
   lines.push(`  // ${input.cardCount} 项 · 相似度 ${(input.similarity * 100).toFixed(0)}%`);
   lines.push(`  一级: '${input.listSelector} ${input.itemSelector};*[title],img&&alt,text;img&&data-original||data-src||src;.*(HD|4K|更新|第.集|全.集|完结|连载|\\\\d{4}).*;a&&href',`);
   lines.push("");
 
-  // 二级 —— 有 detail 用推断，无 detail 用兜底
-  lines.push(`  // 二级（详情页）${hasDetail ? "— site2source 从真实详情页学习" : "— 兜底模板，需要微调"}`);
+  // 二级
+  lines.push(`  // 二级（详情页）${hasDetail ? "— site2source 从真实详情页学习" : "— 兜底模板"}`);
   lines.push(`  二级: {`);
   lines.push(`    title: '${detail.titleSelector || "h1"}&&Text',`);
-  if (detail.descSelector) {
-    lines.push(`    desc:  '${detail.descSelector}&&Text',`);
-  } else {
-    lines.push(`    desc:  '.detail&&Text',`);
-  }
+  lines.push(`    desc:  '${detail.descSelector || ".detail"}&&Text',`);
   lines.push(`    content: '${detail.descSelector || ".plot,.content"}&&Text',`);
-  if (detail.playTabSelector) {
-    lines.push(`    tabs: '${detail.playTabSelector}&&a',`);
-  } else {
-    lines.push(`    tabs: '.play-from,.playfrom&&a',`);
-  }
-  if (detail.playListSelector) {
-    lines.push(`    lists: '${detail.playListSelector}',`);
-  } else {
-    lines.push(`    lists: '.playlist,.play-list',`);
-  }
+  lines.push(`    tabs: '${detail.playTabSelector || ".play-from,.playfrom"}&&a',`);
+  lines.push(`    lists: '${detail.playListSelector || ".playlist,.play-list"}',`);
   lines.push(`  },`);
   lines.push("");
-  lines.push(`  // 搜索 TODO`);
-  lines.push(`  搜索: '*',`);
+
+  // 搜索规则
+  if (home.searchAction) {
+    lines.push(`  // 搜索规则（site2source 自动识别搜索表单）`);
+    lines.push(`  搜索: '${input.listSelector} ${input.itemSelector};*[title],img&&alt,text;img&&data-original||data-src||src;.*(HD|更新|完结|\\\\d{4}).*;a&&href',`);
+  } else {
+    lines.push(`  搜索: '*',                          // TODO`);
+  }
   lines.push("");
 
-  // 播放解析
-  if (hasMedia) {
-    lines.push(`  // 🎬 播放解析（site2source 抓到 ${media.length} 条视频流）`);
-    // 优先 m3u8 > mp4 > flv > ts
-    const primary = media.find((m) => m.type === "m3u8") || media[0];
-    const referer = primary.referer || input.baseURL + "/";
-    lines.push(`  lazy: async function (flag, id, flags) {`);
-    lines.push(`    // 抓到的样本：`);
-    for (const m of media.slice(0, 5)) {
-      lines.push(`    //   [${m.type}] ${m.url}`);
-    }
-    lines.push(`    //`);
-    lines.push(`    // 常见做法：`);
-    lines.push(`    // 1. 拉播放页 HTML: const html = await request(id);`);
-    lines.push(`    // 2. 从 HTML 里正则找 m3u8: const m = html.match(/https?:[^"']+\\\\.m3u8[^"']*/);`);
-    lines.push(`    // 3. return { parse: 0, url: m[0], header: { Referer: HOST } };`);
-    lines.push(`    //`);
-    lines.push(`    // 或者用抓到的直链模式（如果 URL 里有 vodId 就替换）：`);
-    lines.push(`    // return { parse: 0, url: '${primary.url}', header: { Referer: '${referer}' } };`);
-    lines.push(`    return { parse: 1, url: id };  // 默认交给 Drpy 内置嗅探`);
-    lines.push(`  }`);
-  } else {
-    lines.push(`  // 播放解析 TODO`);
-    lines.push(`  lazy: async function (flag, id, flags) {`);
-    lines.push(`    return { parse: 1, url: id };  // 默认交给 Drpy 内置嗅探`);
-    lines.push(`  }`);
-  }
+  // 智能 lazy
+  lines.push(generateLazyFunction(media, input.baseURL));
 
   lines.push(`};`);
   lines.push("");
-  lines.push(`/* 探测到的样本卡片（前 ${Math.min(5, input.samples.length)} 张）:`);
+
+  // 附录：调试信息
+  lines.push(`/* ============ 调试信息 ============`);
+  lines.push(`  网站: ${input.siteName} (${input.baseURL})`);
+  lines.push(``);
+  if (cats.length > 0) {
+    lines.push(`  识别到 ${cats.length} 个分类:`);
+    cats.slice(0, 10).forEach((c) => {
+      lines.push(`    - ${c.name}: ${c.url}`);
+    });
+  }
+  if (home.searchAction) {
+    lines.push(``);
+    lines.push(`  搜索: ${home.searchAction} (参数: ${home.searchParam})`);
+  }
+  lines.push(``);
+  lines.push(`  列表样本 (前 ${Math.min(5, input.samples.length)}):`);
   for (let i = 0; i < Math.min(5, input.samples.length); i++) {
     const s = input.samples[i];
-    lines.push(`  ${i + 1}. ${s.name}`);
-    lines.push(`     URL: ${s.url}`);
-    lines.push(`     Pic: ${s.pic}`);
-    lines.push(`     Remarks: ${s.remarks}`);
+    lines.push(`    ${i + 1}. ${s.name}${s.remarks ? ` [${s.remarks}]` : ""}`);
+    lines.push(`       → ${s.url}`);
+  }
+  if (hasMedia) {
+    lines.push(``);
+    lines.push(`  抓到 ${media.length} 条视频流:`);
+    media.slice(0, 5).forEach((m) => {
+      lines.push(`    [${m.type}] ${m.url}`);
+      if (m.referer) lines.push(`         Referer: ${m.referer}`);
+    });
   }
   lines.push(`*/`);
 
   return lines.join("\n");
 }
+
+/** 智能 lazy() 生成：从抓到的多条 URL 找共同 pattern */
+function generateLazyFunction(media: CapturedMedia[], baseURL: string): string {
+  const lines: string[] = [];
+
+  if (media.length === 0) {
+    lines.push(`  lazy: async function (flag, id, flags) {`);
+    lines.push(`    // TODO: 未抓到播放地址，交给 Drpy 内置嗅探`);
+    lines.push(`    return { parse: 1, url: id };`);
+    lines.push(`  }`);
+    return lines.join("\n");
+  }
+
+  // 优先 m3u8
+  const m3u8s = media.filter((m) => m.type === "m3u8");
+  const primary = m3u8s.length > 0 ? m3u8s : media;
+  const first = primary[0];
+  const referer = first.referer || baseURL + "/";
+
+  // 找共同 host / 路径 pattern
+  const pattern = extractURLPattern(primary.map((m) => m.url));
+
+  lines.push(`  // 🎬 播放解析（site2source 从 ${media.length} 条抓包学习）`);
+  lines.push(`  lazy: async function (flag, id, flags) {`);
+  lines.push(`    // 抓到的播放地址样本：`);
+  for (const m of media.slice(0, 4)) {
+    lines.push(`    //   [${m.type}] ${m.url}`);
+  }
+  if (pattern.commonHost) {
+    lines.push(`    //`);
+    lines.push(`    // 视频域名: ${pattern.commonHost}`);
+    lines.push(`    // 疑似 pattern: ${pattern.template}`);
+  }
+  lines.push(``);
+  lines.push(`    try {`);
+  lines.push(`      // 策略 1: 拉播放页 HTML, 用正则从中提取 m3u8`);
+  lines.push(`      const html = await request(id);`);
+  lines.push(`      const patterns = [`);
+  lines.push(`        /https?:\\/\\/[^"'\\s]+?\\.m3u8[^"'\\s]*/i,`);
+  lines.push(`        /"(https?:\\/\\/[^"]+?\\.mp4[^"]*)"/i,`);
+  lines.push(`        /(?:url|src|source)\\s*[:=]\\s*["'](https?:\\/\\/[^"']+?\\.(?:m3u8|mp4)[^"']*)["']/i,`);
+  lines.push(`      ];`);
+  lines.push(`      for (const re of patterns) {`);
+  lines.push(`        const m = html.match(re);`);
+  lines.push(`        if (m) {`);
+  lines.push(`          const url = m[1] || m[0];`);
+  lines.push(`          return {`);
+  lines.push(`            parse: 0,`);
+  lines.push(`            url: url.replace(/\\\\\\//g, '/'),`);
+  lines.push(`            header: { 'User-Agent': 'Mozilla/5.0', 'Referer': '${escapeJS(referer)}' }`);
+  lines.push(`          };`);
+  lines.push(`        }`);
+  lines.push(`      }`);
+  lines.push(`    } catch (e) {`);
+  lines.push(`      log('lazy fail: ' + e.message);`);
+  lines.push(`    }`);
+  lines.push(`    // 兜底: 交给 Drpy 内置嗅探`);
+  lines.push(`    return { parse: 1, url: id, header: { 'Referer': '${escapeJS(referer)}' } };`);
+  lines.push(`  }`);
+  return lines.join("\n");
+}
+
+/** 从多条 URL 里找共同的 host 和路径模板 */
+function extractURLPattern(urls: string[]): { commonHost: string; template: string } {
+  if (urls.length === 0) return { commonHost: "", template: "" };
+  try {
+    const parsed = urls.map((u) => new URL(u));
+    // 共同 host
+    const hosts = new Set(parsed.map((u) => u.host));
+    const commonHost = hosts.size === 1 ? parsed[0].host : Array.from(hosts).join(",");
+    // 路径公共前缀
+    const paths = parsed.map((u) => u.pathname.split("/"));
+    const minLen = Math.min(...paths.map((p) => p.length));
+    const common: string[] = [];
+    for (let i = 0; i < minLen; i++) {
+      const vals = new Set(paths.map((p) => p[i]));
+      if (vals.size === 1) common.push(paths[0][i]);
+      else common.push("*");
+    }
+    return { commonHost, template: common.join("/") };
+  } catch {
+    return { commonHost: "", template: "" };
+  }
+}
+
+/** 从分类 URL 里提取数字 id */
+function extractClassId(url: string): string | undefined {
+  try {
+    const p = new URL(url).pathname;
+    // 常见 pattern: /vodtype/1.html, /type/1, /category/movie 等
+    const m = p.match(/\/(\d+)(?:\.html?)?$/) || p.match(/[?&](?:id|cid|type)=(\d+)/);
+    if (m) return m[1];
+    // 拿最后一段
+    const segs = p.split("/").filter(Boolean);
+    return segs[segs.length - 1]?.replace(/\.html?$/i, "");
+  } catch {
+    return undefined;
+  }
+}
+
+// ==================== tvbox.json ====================
 
 export function generateTVBoxJSON(input: GenerateInput, spiderURL: string): string {
   const cfg = {
@@ -144,8 +265,8 @@ export function generateTVBoxJSON(input: GenerateInput, spiderURL: string): stri
         type: 3,
         api: spiderURL,
         ext: "",
-        searchable: 1,
-        quickSearch: 1,
+        searchable: input.home?.searchAction ? 1 : 0,
+        quickSearch: input.home?.searchAction ? 1 : 0,
         filterable: 1,
       },
     ],
