@@ -9,6 +9,7 @@ export type Message =
   | { type: "GET_CANDIDATES" }
   | { type: "HIGHLIGHT_ELEMENT"; selector: string }
   | { type: "STOP_INSPECT" }
+  | { type: "RECOMPUTE_BASE"; selector: string }
   // 手动点选模式（用户 hover 页面 → 点击选中）
   | { type: "START_PICK"; role: PickRole }
   | { type: "STOP_PICK" }
@@ -41,8 +42,23 @@ export type PickRole =
 export interface SiteInfo {
   url: string;
   host: string;
-  baseURL: string; // scheme://host
+  baseURL: string; // scheme://host（当前页面）
   siteName: string;
+}
+
+/** 从 DOM/抓包投票推断的多种 base */
+export interface BaseInfo {
+  pageBase: string; // location.origin
+  linkBase?: string; // 列表 <a href> 里最常见的绝对 host
+  imgBase?: string; // 列表 <img src> 里最常见的绝对 host
+  apiBase?: string; // 抓到的 XHR/fetch 里最常见的 host
+  /** 用户手工确认的最终 base（覆盖以上） */
+  overrideBase?: string;
+  /** 各 base 的统计明细，便于调试展示 */
+  stats?: {
+    links: { host: string; count: number; sample?: string }[];
+    imgs: { host: string; count: number; sample?: string }[];
+  };
 }
 
 export interface SerializedCandidate {
@@ -90,12 +106,13 @@ export interface HomeSpec {
 /** 一次源生成项目的完整状态，跨 tab 跨 popup 保持 */
 export interface ProjectState {
   site?: SiteInfo;
+  baseInfo?: BaseInfo;
   listSelector?: string;
   listItemTag?: string;
   listSamples?: SerializedSample[];
   listMeta?: { childCount: number; similarity: number };
   detail?: DetailSpec;
   home?: HomeSpec;
-  capturedMedia?: CapturedMedia[]; // aggregated from background per-tab
-  gistURL?: string; // 上传后的 spider URL
+  capturedMedia?: CapturedMedia[];
+  gistURL?: string;
 }

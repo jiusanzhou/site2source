@@ -11,6 +11,7 @@ import {
   findListContainers,
   type ListCandidate,
 } from "~lib/dom-analyzer";
+import { inferBaseInfo } from "~lib/base-inferrer";
 import type {
   Message,
   PickRole,
@@ -18,6 +19,7 @@ import type {
   SerializedSample,
   DetailSpec,
   HomeSpec,
+  BaseInfo,
 } from "~lib/messages";
 
 export const config = {
@@ -545,9 +547,13 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
         `#${i + 1} · ${c.childCount} 项 · ${(c.similarity * 100).toFixed(0)}%`
       );
     });
+    // base 用得分最高的候选容器来推断（更准）
+    const topContainer = lastCandidates[0]?.element;
+    const baseInfo: BaseInfo = inferBaseInfo(topContainer);
     sendResponse({
       site: extractSiteInfo(),
       candidates: serializeCandidates(lastCandidates),
+      baseInfo,
     });
     return true;
   }
@@ -562,6 +568,14 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
       }
     } catch {}
     return false;
+  }
+
+  if (msg.type === "RECOMPUTE_BASE") {
+    let root: Element | null = null;
+    try { root = document.querySelector(msg.selector); } catch {}
+    const baseInfo = inferBaseInfo(root);
+    sendResponse({ baseInfo });
+    return true;
   }
 
   if (msg.type === "STOP_INSPECT") {

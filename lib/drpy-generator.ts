@@ -3,16 +3,21 @@
  */
 
 import type {
+  BaseInfo,
   CapturedMedia,
   DetailSpec,
   HomeSpec,
   SerializedSample,
 } from "./messages";
+import { resolveHost } from "./base-inferrer";
 
 export interface GenerateInput {
   siteName: string;
   baseURL: string;
   host: string;
+
+  // Base 推断（可选，如果没有就退回 baseURL）
+  baseInfo?: BaseInfo;
 
   // 列表
   listSelector: string;
@@ -44,6 +49,12 @@ export function generateDrpySpider(input: GenerateInput): string {
   const media = input.media || [];
   const hasMedia = media.length > 0;
 
+  // 从 baseInfo + samples 里投票决定真实 host（详情页链接的 host 优先）
+  const sampleURLs = input.samples.map((s) => s.url).filter(Boolean);
+  const resolvedHost = input.baseInfo
+    ? resolveHost(input.baseInfo, sampleURLs)
+    : input.baseURL;
+
   // 分类
   const cats = home.categories || [];
   const className = cats.length > 0
@@ -58,7 +69,7 @@ export function generateDrpySpider(input: GenerateInput): string {
 
   lines.push(`globalThis.rule = {`);
   lines.push(`  title: '${escapeJS(input.siteName)}',`);
-  lines.push(`  host: '${input.baseURL}',`);
+  lines.push(`  host: '${resolvedHost}',`);
   lines.push(`  homeUrl: '/',`);
   lines.push(`  url: '${urlPattern.replace("{cate}", "fyclass").replace("{page}", "fypage")}',`);
   lines.push(`  detailUrl: '',`);
@@ -122,6 +133,26 @@ export function generateDrpySpider(input: GenerateInput): string {
   // 附录：调试信息
   lines.push(`/* ============ 调试信息 ============`);
   lines.push(`  网站: ${input.siteName} (${input.baseURL})`);
+  lines.push(`  最终 host: ${resolvedHost}`);
+  if (input.baseInfo) {
+    lines.push(``);
+    lines.push(`  Base 推断:`);
+    lines.push(`    - 页面: ${input.baseInfo.pageBase}`);
+    if (input.baseInfo.linkBase) lines.push(`    - 链接: ${input.baseInfo.linkBase}`);
+    if (input.baseInfo.imgBase) lines.push(`    - 图片: ${input.baseInfo.imgBase}`);
+    if (input.baseInfo.overrideBase) lines.push(`    - 手工覆盖: ${input.baseInfo.overrideBase}`);
+    if (input.baseInfo.stats) {
+      lines.push(``);
+      lines.push(`  链接 host 统计:`);
+      input.baseInfo.stats.links.slice(0, 3).forEach((l) => {
+        lines.push(`    ${l.count}× ${l.host}`);
+      });
+      lines.push(`  图片 host 统计:`);
+      input.baseInfo.stats.imgs.slice(0, 3).forEach((l) => {
+        lines.push(`    ${l.count}× ${l.host}`);
+      });
+    }
+  }
   lines.push(``);
   if (cats.length > 0) {
     lines.push(`  识别到 ${cats.length} 个分类:`);

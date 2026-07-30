@@ -467,3 +467,44 @@ code {
   outline: none;
 }
 .s2s-input:focus { border-color: var(--s2s-primary); }
+
+/* ==================== Base panel ==================== */
+.s2s-base-panel {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: var(--s2s-panel);
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+.s2s-base-panel > summary {
+  font-size: 12px;
+  color: var(--s2s-fg);
+  padding: 0;
+}
+.s2s-base-panel > summary code {
+  font-size: 11px;
+  color: var(--s2s-primary);
+}
+.s2s-base-body {
+  padding-top: 8px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+  margin-top: 6px;
+}
+.s2s-base-row {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 11px;
+  margin-bottom: 3px;
+}
+.s2s-base-row code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
+  display: inline-block;
+}
+.s2s-badge-warn {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}

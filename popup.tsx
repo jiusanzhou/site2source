@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import type {
+  BaseInfo,
   CapturedMedia,
   DetailSpec,
   HomeSpec,
@@ -13,6 +14,7 @@ import {
   generateDrpySpider,
   generateTVBoxJSON,
 } from "~lib/drpy-generator";
+import { hasHostMismatch, resolveHost } from "~lib/base-inferrer";
 import {
   getGithubToken,
   setGithubToken,
@@ -135,11 +137,12 @@ function Popup() {
   const analyzeCurrentPage = async () => {
     setLoading(true);
     setNotice("");
-    // 同时探测：列表 + 首页信息（分类导航/搜索）
     const [listRes, homeRes] = await Promise.all([
-      sendToActiveTab<{ site: SiteInfo; candidates: SerializedCandidate[] }>({
-        type: "GET_CANDIDATES",
-      }),
+      sendToActiveTab<{
+        site: SiteInfo;
+        candidates: SerializedCandidate[];
+        baseInfo?: BaseInfo;
+      }>({ type: "GET_CANDIDATES" }),
       sendToActiveTab<{ site: SiteInfo; spec: HomeSpec }>({ type: "GET_HOME_INFO" }),
     ]);
     setLoading(false);
@@ -150,6 +153,7 @@ function Popup() {
     setCandidates(listRes.candidates);
     const patch: Partial<ProjectState> = { site: listRes.site };
     if (homeRes?.spec) patch.home = homeRes.spec;
+    if (listRes.baseInfo) patch.baseInfo = listRes.baseInfo;
     await saveState(patch);
     if (listRes.candidates.length === 0) {
       setNotice(`未找到影片列表。可以试试"手动选"按钮。`);
@@ -163,13 +167,33 @@ function Popup() {
     setSelectedIdx(i);
     const c = candidates[i];
     sendToActiveTab({ type: "HIGHLIGHT_ELEMENT", selector: c.selector });
-    await saveState({
+    // 用真实选中的容器重算 base（更准）
+    const rebase = await sendToActiveTab<{ baseInfo: BaseInfo }>({
+      type: "RECOMPUTE_BASE",
+      selector: c.selector,
+    });
+    const patch: Partial<ProjectState> = {
       listSelector: c.selector,
       listItemTag: c.itemTag,
       listSamples: c.samples,
       listMeta: { childCount: c.childCount, similarity: c.similarity },
-    });
+    };
+    if (rebase?.baseInfo) {
+      // 保留旧的 overrideBase（用户可能已经手工改过）
+      patch.baseInfo = {
+        ...rebase.baseInfo,
+        overrideBase: state.baseInfo?.overrideBase,
+      };
+    }
+    await saveState(patch);
     setStep("listReview");
+  };
+
+  const setOverrideBase = async (val: string) => {
+    if (!state.baseInfo) return;
+    await saveState({
+      baseInfo: { ...state.baseInfo, overrideBase: val || undefined },
+    });
   };
 
   const startManualPick = () => {
@@ -227,6 +251,7 @@ function Popup() {
       siteName: s.siteName || s.host,
       baseURL: s.baseURL,
       host: s.host,
+      baseInfo: state.baseInfo,
       listSelector: state.listSelector,
       itemSelector: state.listItemTag || "*",
       cardCount: state.listMeta?.childCount || 0,
@@ -394,6 +419,15 @@ function Popup() {
                 <SampleCard key={i} s={s} />
               ))}
             </div>
+          )}
+
+          {/* Base 分析卡片 */}
+          {state.baseInfo && (
+            <BasePanel
+              info={state.baseInfo}
+              samples={state.listSamples || []}
+              onOverride={setOverrideBase}
+            />
           )}
 
           {/* 已识别的首页信息 */}
@@ -589,6 +623,111 @@ function DetailField({
       </div>
       <button className="s2s-btn-mini" onClick={onPick}>{selector ? "改" : "手选"}</button>
     </div>
+  );
+}
+
+function BasePanel({
+  info, samples, onOverride,
+}: {
+  info: BaseInfo;
+  samples: SerializedSample[];
+  onOverride: (val: string) => void;
+}) {
+  const sampleURLs = samples.map((s) => s.url).filter(Boolean);
+  const auto = resolveHost({ ...info, overrideBase: undefined }, sampleURLs);
+  const final = info.overrideBase || auto;
+  const mismatch = hasHostMismatch(info);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(info.overrideBase || "");
+
+  const candidates = Array.from(
+    new Set(
+      [
+        auto,
+        info.pageBase,
+        info.linkBase,
+        info.imgBase,
+        ...(info.stats?.links.slice(0, 3).map((l) => l.host) || []),
+      ].filter((x): x is string => !!x)
+    )
+  );
+
+  return (
+    <details className="s2s-collapsible s2s-base-panel" open={mismatch}>
+      <summary>
+        🌐 Base URL: <code>{final}</code>
+        {mismatch && <span className="s2s-badge s2s-badge-warn"> ⚠ 多域</span>}
+      </summary>
+      <div className="s2s-base-body">
+        <div className="s2s-base-row">
+          <span className="s2s-info-label">页面 origin：</span>
+          <code>{info.pageBase}</code>
+        </div>
+        {info.linkBase && info.linkBase !== info.pageBase && (
+          <div className="s2s-base-row">
+            <span className="s2s-info-label">链接 host：</span>
+            <code>{info.linkBase}</code>
+          </div>
+        )}
+        {info.imgBase && info.imgBase !== info.pageBase && (
+          <div className="s2s-base-row">
+            <span className="s2s-info-label">图片 host：</span>
+            <code>{info.imgBase}</code>
+          </div>
+        )}
+        {info.stats && info.stats.links.length > 1 && (
+          <details className="s2s-collapsible" style={{ marginTop: 4 }}>
+            <summary style={{ fontSize: 11 }}>Top 链接 host 统计</summary>
+            {info.stats.links.slice(0, 4).map((l) => (
+              <div key={l.host} className="s2s-base-row">
+                <span className="s2s-info-label">{l.count}×</span>
+                <code>{l.host}</code>
+              </div>
+            ))}
+          </details>
+        )}
+
+        <div style={{ marginTop: 8 }}>
+          {editing ? (
+            <div className="s2s-actions">
+              <input
+                className="s2s-input"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="例如 https://www.example.tv"
+                list="s2s-base-cands"
+              />
+              <datalist id="s2s-base-cands">
+                {candidates.map((c) => <option key={c} value={c} />)}
+              </datalist>
+            </div>
+          ) : null}
+          <div className="s2s-actions" style={{ marginTop: 6 }}>
+            {editing ? (
+              <>
+                <button className="s2s-btn s2s-btn-ghost" onClick={() => { setEditing(false); setDraft(info.overrideBase || ""); }}>
+                  取消
+                </button>
+                <button className="s2s-btn s2s-btn-primary" onClick={() => { onOverride(draft.trim()); setEditing(false); }}>
+                  保存
+                </button>
+              </>
+            ) : (
+              <>
+                {info.overrideBase && (
+                  <button className="s2s-btn s2s-btn-ghost" onClick={() => onOverride("")}>
+                    还原自动
+                  </button>
+                )}
+                <button className="s2s-btn s2s-btn-ghost" onClick={() => { setEditing(true); setDraft(info.overrideBase || auto); }}>
+                  ✎ 手工改
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </details>
   );
 }
 
