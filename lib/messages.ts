@@ -98,6 +98,26 @@ export interface CapturedMedia {
   timestamp: number;
   referer?: string;
   tabURL?: string;
+  /** m3u8 内容探测结果 (仅 type=m3u8 时填充) */
+  probe?: MediaProbe;
+}
+
+export interface MediaProbe {
+  status: number;              // HTTP 状态
+  ok: boolean;                 // status 2xx
+  contentType?: string;
+  /** 加密方式识别 */
+  encryption: "none" | "aes-128" | "sample-aes" | "widevine" | "playready" | "custom" | "unknown";
+  /** key 请求 URL (AES-128 时) */
+  keyURI?: string;
+  /** ts 片段数 */
+  segmentCount?: number;
+  /** m3u8 头几行 (最多 500 字符, 用于 UI 展示) */
+  preview?: string;
+  /** 是否 master playlist (指向多个码率的子 m3u8) */
+  isMaster?: boolean;
+  /** 错误信息 */
+  error?: string;
 }
 
 /**

@@ -4,12 +4,14 @@ import type {
   CapturedMedia,
   DetailSpec,
   HomeSpec,
+  MediaProbe,
   ProjectState,
   SerializedCandidate,
   SerializedSample,
   SiteInfo,
   PickRole,
 } from "~lib/messages";
+import { isPlayable } from "~lib/m3u8-probe";
 import {
   generateDrpySpider,
   generateAPIDrpySpider,
@@ -45,6 +47,48 @@ import "./popup.css";
 // ==================== component ====================
 
 /** 判断当前 UI 是运行在 sidepanel 里还是 popup 里 */
+function ProbeBadge({ probe }: { probe: MediaProbe }) {
+  const meta = isPlayable(probe.encryption);
+  const colors: Record<string, string> = {
+    "none": "#16a34a",       // green
+    "aes-128": "#0284c7",    // blue
+    "sample-aes": "#dc2626", // red
+    "widevine": "#dc2626",
+    "playready": "#dc2626",
+    "custom": "#d97706",     // amber
+    "unknown": "#6b7280",    // gray
+  };
+  const labels: Record<string, string> = {
+    "none": "✅ 无加密",
+    "aes-128": "🔓 AES-128",
+    "sample-aes": "🔒 SAMPLE-AES",
+    "widevine": "🔒 Widevine",
+    "playready": "🔒 PlayReady",
+    "custom": "⚠️ 自定义",
+    "unknown": "❔ 未知",
+  };
+  const bg = colors[probe.encryption] || "#6b7280";
+  const label = labels[probe.encryption] || probe.encryption;
+  return (
+    <span
+      title={meta.reason + (probe.keyURI ? "\nkey: " + probe.keyURI : "")}
+      style={{
+        background: bg,
+        color: "#fff",
+        fontSize: 10,
+        padding: "1px 6px",
+        borderRadius: 3,
+        marginLeft: 4,
+        cursor: "help",
+      }}
+    >
+      {label}
+      {probe.segmentCount ? ` · ${probe.segmentCount}段` : ""}
+      {probe.isMaster ? " · master" : ""}
+    </span>
+  );
+}
+
 function isInSidePanel(): boolean {
   try {
     return window.location.pathname.includes("sidepanel");
@@ -1086,8 +1130,14 @@ function Popup() {
                           from {shortURL(m.tabURL, 24)}
                         </span>
                       )}
+                      {m.probe && <ProbeBadge probe={m.probe} />}
                     </div>
                     <div className="s2s-media-url" title={m.url}>{shortURL(m.url, 42)}</div>
+                    {m.probe?.error && (
+                      <div className="s2s-tip-dim" style={{ fontSize: 11, marginTop: 2, color: "#b45309" }}>
+                        ⚠️ {m.probe.error}
+                      </div>
+                    )}
                   </div>
                   <div className="s2s-media-actions">
                     <button

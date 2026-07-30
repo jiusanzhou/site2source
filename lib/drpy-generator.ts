@@ -382,12 +382,36 @@ export interface APIGenerateInput {
   };
 
   categories?: { name: string; value: string }[];
+
+  /** 抓到的媒体流 (含 m3u8 probe 结果), 用来在 spider 头注释里提示加密情况 */
+  media?: CapturedMedia[];
 }
 
 export function generateAPIDrpySpider(input: APIGenerateInput): string {
   const lines: string[] = [];
   lines.push(`// site2source-ext auto-generated Drpy T4 API spider for ${input.host}`);
   lines.push(`// Generated: ${new Date().toISOString()}`);
+
+  // 加密情况提示 (从 media probe 结果生成)
+  const m3u8Probes = (input.media || [])
+    .filter((m) => m.type === "m3u8" && m.probe)
+    .slice(0, 3);
+  if (m3u8Probes.length > 0) {
+    lines.push("//");
+    lines.push("// 媒体流探测结果:");
+    for (const m of m3u8Probes) {
+      const p = m.probe!;
+      lines.push(`//   [${p.encryption}] ${m.url.slice(0, 80)}${m.url.length > 80 ? "..." : ""}`);
+      if (p.encryption === "widevine" || p.encryption === "playready" || p.encryption === "sample-aes") {
+        lines.push(`//     ⚠️  DRM 加密, TVBox 一般无法播放, 建议放弃此站`);
+      } else if (p.encryption === "aes-128") {
+        lines.push(`//     🔓 HLS AES-128, IJKPlayer 自动解密; 如 key 请求 401, 需在 播放() 里加 header`);
+      } else if (p.encryption === "custom") {
+        lines.push(`//     ⚠️  自定义加密, 需要在 播放() 里逆向解密算法`);
+      }
+    }
+  }
+
   lines.push("");
 
   const cats = input.categories || [

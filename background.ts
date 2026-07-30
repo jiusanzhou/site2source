@@ -7,6 +7,7 @@
  */
 
 import type { CapturedMedia, CapturedXHR, ProjectState, Message } from "~lib/messages";
+import { probeM3U8 } from "~lib/m3u8-probe";
 
 const MEDIA_EXT_RE = /\.(m3u8|mp4|flv|ts)(\?|$)/i;
 // 判断"可能是 API"的启发式: 路径含常见关键词, 或返回内容是 JSON
@@ -77,6 +78,29 @@ async function appendMedia(tabId: number, cap: CapturedMedia) {
 
   chrome.action.setBadgeText({ tabId, text: String(arr.length) });
   chrome.action.setBadgeBackgroundColor({ color: "#22c55e" });
+
+  // m3u8 主动探测加密方式 (后台异步, 不阻塞抓包)
+  if (cap.type === "m3u8" && !cap.probe) {
+    probeAndUpdate(tabId, cap.url, cap.referer);
+  }
+}
+
+/** 后台探测 m3u8, 完成后回写到 storage */
+async function probeAndUpdate(tabId: number, url: string, referer?: string) {
+  try {
+    const probe = await probeM3U8(url, referer);
+    const all = (await chrome.storage.local.get([MEDIA_KEY]))[MEDIA_KEY] || {};
+    const key = String(tabId);
+    const arr: CapturedMedia[] = all[key] || [];
+    const idx = arr.findIndex((m) => m.url === url);
+    if (idx < 0) return;
+    arr[idx] = { ...arr[idx], probe };
+    all[key] = arr;
+    await chrome.storage.local.set({ [MEDIA_KEY]: all });
+    console.log(`[s2s] m3u8 probe: ${probe.encryption}${probe.error ? " ("+probe.error+")" : ""} · ${url.slice(0,80)}`);
+  } catch (e) {
+    console.warn("[s2s] m3u8 probe failed", e);
+  }
 }
 
 async function getMediaForTab(tabId: number): Promise<CapturedMedia[]> {
