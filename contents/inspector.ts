@@ -591,6 +591,23 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === "GET_HTML_SNAPSHOT") {
+    // 返回 body 的 outerHTML (去了 script/style 会在 popup 侧处理)
+    // 尽量给 main / .content / body 的顺序
+    const preferred =
+      document.querySelector("main") ||
+      document.querySelector(".content") ||
+      document.querySelector("#content") ||
+      document.body;
+    const html = preferred?.outerHTML || "";
+    sendResponse({
+      html,
+      url: location.href,
+      title: document.title,
+    });
+    return true;
+  }
+
   if (msg.type === "STOP_INSPECT") {
     clearOverlay();
     stopPickMode();

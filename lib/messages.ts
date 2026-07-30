@@ -12,6 +12,7 @@ export type Message =
   | { type: "RECOMPUTE_BASE"; selector: string }
   | { type: "TEST_RULE"; rule: string }
   | { type: "TEST_DETAIL_RULE"; input: import("./rule-runner").DetailRuleInput }
+  | { type: "GET_HTML_SNAPSHOT"; maxBytes?: number }
   // 手动点选模式（用户 hover 页面 → 点击选中）
   | { type: "START_PICK"; role: PickRole }
   | { type: "STOP_PICK" }

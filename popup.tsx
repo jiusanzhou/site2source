@@ -14,122 +14,31 @@ import {
   generateDrpySpider,
   generateTVBoxJSON,
 } from "~lib/drpy-generator";
-import { hasHostMismatch, resolveHost } from "~lib/base-inferrer";
 import { runOnePlusRule, type OnePlusRuleResult, type DetailRuleResult } from "~lib/rule-runner";
+import { uploadToGist } from "~lib/gist-uploader";
+import { askAIDetail, trimHTML, hasAIConfig } from "~lib/ai-helper";
 import {
-  getGithubToken,
-  setGithubToken,
-  uploadToGist,
-} from "~lib/gist-uploader";
+  sendToActiveTab,
+  sendToBackground,
+  downloadText,
+  shortURL,
+  copyToClipboard,
+  openInPlayer,
+  summarizeTestResult,
+  summarizeDetail,
+} from "~lib/popup-helpers";
+import {
+  BasePanel,
+  DetailField,
+  ProgressBar,
+  ProjectsPanel,
+  SampleCard,
+  SettingsPanel,
+  type Step,
+} from "~popup/components";
 import "./popup.css";
 
-// ==================== helpers ====================
-
-async function sendToActiveTab<T = any>(msg: any): Promise<T | null> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) return null;
-  try {
-    return await chrome.tabs.sendMessage<any, T>(tab.id, msg);
-  } catch (e) {
-    console.warn("[popup] sendMessage failed, injecting content script...", e);
-    try {
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: ["inspector.js"],
-      });
-      return await chrome.tabs.sendMessage<any, T>(tab.id, msg);
-    } catch (e2) {
-      console.error("[popup] inject failed:", e2);
-      return null;
-    }
-  }
-}
-
-async function sendToBackground<T = any>(msg: any): Promise<T | null> {
-  try {
-    return await chrome.runtime.sendMessage<any, T>(msg);
-  } catch (e) {
-    console.error("[popup] bg send failed:", e);
-    return null;
-  }
-}
-
-function downloadText(filename: string, content: string, mime: string) {
-  const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 3000);
-}
-
-function shortURL(u: string, n = 40) {
-  if (u.length <= n) return u;
-  return u.slice(0, 20) + "..." + u.slice(-16);
-}
-
-async function copyToClipboard(text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {}
-}
-
-/**
- * 处理试播: mp4 直接 popup 内看; m3u8 只能复制到外部播放器
- */
-function openInPlayer(url: string) {
-  const isMp4 = /\.(mp4|flv)(\?|$)/i.test(url);
-  if (isMp4) {
-    // MP4 直接开新 tab, 浏览器原生放
-    chrome.tabs.create({ url });
-  } else {
-    // m3u8/hls: 复制 URL + 提示
-    navigator.clipboard.writeText(url).then(() => {
-      alert(
-        "已复制 m3u8 URL 到剪贴板\n\n" +
-        "试播方法：\n" +
-        "• VLC: 媒体 → 打开网络串流 → 粘贴 URL\n" +
-        "• Chrome: 装 'Native HLS Playback' 扩展\n" +
-        "• 或者装到 TVBox 里直接跑生成的 spider"
-      );
-    });
-  }
-}
-
-/** 分析试运行结果，给出人话诊断 */
-function summarizeTestResult(r: OnePlusRuleResult): string {
-  if (!r.containerFound) return "❌ 容器都没找到，选择器可能不对";
-  if (r.count === 0) return "⚠️ 容器找到了但里面没卡片";
-  const withName = r.items.filter((i) => i.name).length;
-  const withPic = r.items.filter((i) => i.pic).length;
-  const withURL = r.items.filter((i) => i.url).length;
-  const withRemarks = r.items.filter((i) => i.remarks).length;
-  const parts: string[] = [];
-  parts.push(`📝 标题 ${withName}/${r.count}`);
-  parts.push(`🖼 图 ${withPic}/${r.count}`);
-  parts.push(`🔗 链接 ${withURL}/${r.count}`);
-  if (withRemarks > 0) parts.push(`🏷 备注 ${withRemarks}/${r.count}`);
-  const perfect = withName === r.count && withPic === r.count && withURL === r.count;
-  return (perfect ? "✅ " : "") + parts.join(" · ");
-}
-
-/** 详情页试运行诊断 */
-function summarizeDetail(r: DetailRuleResult): string {
-  const parts: string[] = [];
-  parts.push(r.title ? "✓ 标题" : "✗ 标题");
-  parts.push(r.pic ? "✓ 图" : "✗ 图");
-  parts.push(r.desc ? "✓ 简介" : "✗ 简介");
-  const totalEp = r.playURL.reduce((sum, l) => sum + l.episodes.length, 0);
-  parts.push(totalEp > 0 ? `✓ ${r.playURL.length} 线路 · ${totalEp} 集` : "✗ 无剧集");
-  return parts.join(" · ");
-}
-
 // ==================== component ====================
-
-type Step = "start" | "listPick" | "listReview" | "detail" | "media" | "done";
 
 function Popup() {
   const [step, setStep] = useState<Step>("start");
@@ -403,6 +312,57 @@ function Popup() {
     await sendToBackground({ type: "SAVE_STATE", state: { detail: next } });
     setState((s) => ({ ...s, detail: next }));
     setDetailTestResult(null);   // 清掉旧结果, 下一次点试运行才重跑
+  };
+
+  // AI 辅助识别 —— 抓当前页 HTML → 发给 DeepSeek → 反填到 detail
+  const [aiStatus, setAIStatus] = useState<{ loading: boolean; msg?: string }>({ loading: false });
+
+  const askAIForDetail = async () => {
+    const okKey = await hasAIConfig();
+    if (!okKey) {
+      alert("请先在 ⚙ 设置里填 OpenRouter API Key");
+      return;
+    }
+    setAIStatus({ loading: true, msg: "抓页面 HTML..." });
+    const snap = await sendToActiveTab<{ html: string; url: string; title: string }>({
+      type: "GET_HTML_SNAPSHOT",
+    });
+    if (!snap?.html) {
+      setAIStatus({ loading: false, msg: "抓 HTML 失败" });
+      return;
+    }
+    setAIStatus({ loading: true, msg: "AI 分析中..." });
+    const trimmed = trimHTML(snap.html);
+    const result = await askAIDetail(trimmed, snap.url, state.detail);
+    if (result.errors?.length) {
+      setAIStatus({ loading: false, msg: `❌ ${result.errors[0]}` });
+      return;
+    }
+    // 只覆盖 AI 建议且原来没值 或原来有值但 AI 给了不同答案时问用户
+    const patch: DetailSpec = { ...(state.detail || {}) };
+    let updates = 0;
+    (["titleSelector", "picSelector", "descSelector", "playTabSelector", "playListSelector"] as const).forEach((k) => {
+      const v = result[k as keyof typeof result] as string | undefined;
+      if (v && !patch[k]) {
+        patch[k] = v;
+        updates++;
+      } else if (v && patch[k] && patch[k] !== v) {
+        // 已有值, 让用户决定是否覆盖
+        if (confirm(`${k} 已有 "${patch[k]}"\nAI 建议 "${v}"\n要用 AI 的吗？`)) {
+          patch[k] = v;
+          updates++;
+        }
+      }
+    });
+    await sendToBackground({ type: "SAVE_STATE", state: { detail: patch } });
+    setState((s) => ({ ...s, detail: patch }));
+    setDetailTestResult(null);
+    setAIStatus({
+      loading: false,
+      msg: updates > 0
+        ? `✅ AI 更新了 ${updates} 个字段${result.reasoning ? ": " + result.reasoning : ""}`
+        : "AI 没找到能补的字段",
+    });
   };
 
   // ==================== 项目切换 ====================
@@ -758,6 +718,14 @@ function Popup() {
             <button className="s2s-btn s2s-btn-ghost" onClick={learnDetail}>🔄 重新分析</button>
             <button
               className="s2s-btn s2s-btn-ghost"
+              onClick={askAIForDetail}
+              disabled={aiStatus.loading}
+              title="用 AI 分析当前页 HTML"
+            >
+              {aiStatus.loading ? "..." : "🤖 AI 帮我看"}
+            </button>
+            <button
+              className="s2s-btn s2s-btn-ghost"
               onClick={runDetailTest}
               disabled={testing || !state.detail?.titleSelector}
             >
@@ -767,6 +735,11 @@ function Popup() {
               下一步 →
             </button>
           </div>
+          {aiStatus.msg && (
+            <div className={`s2s-notice ${aiStatus.msg.startsWith("❌") ? "s2s-notice-err" : ""}`} style={{ marginTop: 8 }}>
+              {aiStatus.msg}
+            </div>
+          )}
         </section>
       )}
 
@@ -873,306 +846,6 @@ function Popup() {
       )}
 
       <footer className="s2s-footer">v0.4 · Site2Source</footer>
-    </div>
-  );
-}
-
-// ==================== 子组件 ====================
-
-function ProgressBar({ current, state }: { current: Step; state: ProjectState }) {
-  const steps: { key: Step; label: string; done: boolean }[] = [
-    { key: "start", label: "1", done: !!state.site },
-    { key: "listReview", label: "2", done: !!state.listSelector },
-    { key: "detail", label: "3", done: !!(state.detail?.titleSelector || state.detail?.playListSelector) },
-    { key: "media", label: "4", done: false },
-    { key: "done", label: "✓", done: current === "done" },
-  ];
-  return (
-    <div className="s2s-progress">
-      {steps.map((s) => (
-        <div
-          key={s.key}
-          className={`s2s-progress-step ${s.done ? "done" : ""} ${current === s.key ? "active" : ""}`}
-        >
-          {s.label}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function SampleCard({ s }: { s: SerializedSample }) {
-  return (
-    <div className="s2s-sample-card">
-      <b>{s.name || "<无标题>"}</b>
-      {s.remarks && <span className="s2s-remarks"> · {s.remarks}</span>}
-      <div className="s2s-sample-url">{s.url}</div>
-    </div>
-  );
-}
-
-function DetailField({
-  label, selector, sample, onPick, onEdit,
-}: {
-  label: string;
-  selector?: string;
-  sample?: string;
-  onPick: () => void;
-  onEdit?: (val: string) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(selector || "");
-  useEffect(() => { setDraft(selector || ""); }, [selector]);
-
-  return (
-    <div className={`s2s-detail-field ${selector ? "filled" : ""}`}>
-      <div className="s2s-detail-label">{label}</div>
-      {editing ? (
-        <>
-          <input
-            className="s2s-input s2s-input-sm"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="CSS 选择器 (可 && 属性)"
-            autoFocus
-            onKeyDown={(e) => {
-              if (e.key === "Enter") { onEdit?.(draft.trim()); setEditing(false); }
-              if (e.key === "Escape") { setEditing(false); setDraft(selector || ""); }
-            }}
-          />
-          <button
-            className="s2s-btn-mini"
-            onClick={() => { onEdit?.(draft.trim()); setEditing(false); }}
-          >✓</button>
-        </>
-      ) : (
-        <>
-          <div className="s2s-detail-value">
-            {selector ? (
-              <>
-                <code title={selector}>{selector}</code>
-                {sample && <div className="s2s-detail-sample" title={sample}>→ {sample}</div>}
-              </>
-            ) : (
-              <span className="s2s-tip-dim">未识别</span>
-            )}
-          </div>
-          {onEdit && selector && (
-            <button className="s2s-btn-mini" onClick={() => setEditing(true)} title="改选择器">✎</button>
-          )}
-          <button className="s2s-btn-mini" onClick={onPick}>{selector ? "点选" : "手选"}</button>
-        </>
-      )}
-    </div>
-  );
-}
-
-function BasePanel({
-  info, samples, onOverride,
-}: {
-  info: BaseInfo;
-  samples: SerializedSample[];
-  onOverride: (val: string) => void;
-}) {
-  const sampleURLs = samples.map((s) => s.url).filter(Boolean);
-  const auto = resolveHost({ ...info, overrideBase: undefined }, sampleURLs);
-  const final = info.overrideBase || auto;
-  const mismatch = hasHostMismatch(info);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(info.overrideBase || "");
-
-  const candidates = Array.from(
-    new Set(
-      [
-        auto,
-        info.pageBase,
-        info.linkBase,
-        info.imgBase,
-        ...(info.stats?.links.slice(0, 3).map((l) => l.host) || []),
-      ].filter((x): x is string => !!x)
-    )
-  );
-
-  return (
-    <details className="s2s-collapsible s2s-base-panel" open={mismatch}>
-      <summary>
-        🌐 Base URL: <code>{final}</code>
-        {mismatch && <span className="s2s-badge s2s-badge-warn"> ⚠ 多域</span>}
-      </summary>
-      <div className="s2s-base-body">
-        <div className="s2s-base-row">
-          <span className="s2s-info-label">页面 origin：</span>
-          <code>{info.pageBase}</code>
-        </div>
-        {info.linkBase && info.linkBase !== info.pageBase && (
-          <div className="s2s-base-row">
-            <span className="s2s-info-label">链接 host：</span>
-            <code>{info.linkBase}</code>
-          </div>
-        )}
-        {info.imgBase && info.imgBase !== info.pageBase && (
-          <div className="s2s-base-row">
-            <span className="s2s-info-label">图片 host：</span>
-            <code>{info.imgBase}</code>
-          </div>
-        )}
-        {info.stats && info.stats.links.length > 1 && (
-          <details className="s2s-collapsible" style={{ marginTop: 4 }}>
-            <summary style={{ fontSize: 11 }}>Top 链接 host 统计</summary>
-            {info.stats.links.slice(0, 4).map((l) => (
-              <div key={l.host} className="s2s-base-row">
-                <span className="s2s-info-label">{l.count}×</span>
-                <code>{l.host}</code>
-              </div>
-            ))}
-          </details>
-        )}
-
-        <div style={{ marginTop: 8 }}>
-          {editing ? (
-            <div className="s2s-actions">
-              <input
-                className="s2s-input"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder="例如 https://www.example.tv"
-                list="s2s-base-cands"
-              />
-              <datalist id="s2s-base-cands">
-                {candidates.map((c) => <option key={c} value={c} />)}
-              </datalist>
-            </div>
-          ) : null}
-          <div className="s2s-actions" style={{ marginTop: 6 }}>
-            {editing ? (
-              <>
-                <button className="s2s-btn s2s-btn-ghost" onClick={() => { setEditing(false); setDraft(info.overrideBase || ""); }}>
-                  取消
-                </button>
-                <button className="s2s-btn s2s-btn-primary" onClick={() => { onOverride(draft.trim()); setEditing(false); }}>
-                  保存
-                </button>
-              </>
-            ) : (
-              <>
-                {info.overrideBase && (
-                  <button className="s2s-btn s2s-btn-ghost" onClick={() => onOverride("")}>
-                    还原自动
-                  </button>
-                )}
-                <button className="s2s-btn s2s-btn-ghost" onClick={() => { setEditing(true); setDraft(info.overrideBase || auto); }}>
-                  ✎ 手工改
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    </details>
-  );
-}
-
-function SettingsPanel({ onClose }: { onClose: () => void }) {
-  const [token, setToken] = useState("");
-  const [saved, setSaved] = useState(false);
-  useEffect(() => { getGithubToken().then(setToken); }, []);
-  const save = async () => {
-    await setGithubToken(token.trim());
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1200);
-  };
-  return (
-    <div className="s2s-modal-backdrop" onClick={onClose}>
-      <div className="s2s-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="s2s-modal-header">
-          <b>⚙ 设置</b>
-          <button className="s2s-btn-mini" onClick={onClose}>关闭</button>
-        </div>
-        <div className="s2s-modal-body">
-          <div className="s2s-section-title" style={{ marginBottom: 6 }}>GitHub Token</div>
-          <p className="s2s-tip s2s-tip-dim">
-            上传到 Gist 需要 <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noreferrer">Personal Access Token</a>（勾选 <code>gist</code> 权限）
-          </p>
-          <input
-            className="s2s-input"
-            type="password"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder="ghp_... 或 github_pat_..."
-          />
-          <div className="s2s-actions" style={{ marginTop: 8 }}>
-            <button className="s2s-btn s2s-btn-primary" onClick={save}>
-              {saved ? "✅ 已保存" : "保存"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ProjectsPanel({
-  projects, activeHost, onSwitch, onDelete, onNew, onClose,
-}: {
-  projects: Array<ProjectState & { host: string }>;
-  activeHost?: string;
-  onSwitch: (host: string) => void;
-  onDelete: (host: string) => void;
-  onNew: () => void;
-  onClose: () => void;
-}) {
-  return (
-    <div className="s2s-modal-backdrop" onClick={onClose}>
-      <div className="s2s-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="s2s-modal-header">
-          <b>📁 项目列表</b>
-          <button className="s2s-btn-mini" onClick={onClose}>关闭</button>
-        </div>
-        <div className="s2s-modal-body">
-          {projects.length === 0 ? (
-            <p className="s2s-tip">还没有保存过项目</p>
-          ) : (
-            <div className="s2s-project-list">
-              {projects.map((p) => (
-                <div
-                  key={p.host}
-                  className={`s2s-project ${activeHost === p.host ? "active" : ""}`}
-                >
-                  <div className="s2s-project-info" onClick={() => onSwitch(p.host)}>
-                    <div className="s2s-project-name">
-                      <b>{p.site?.siteName || p.host}</b>
-                      {activeHost === p.host && <span className="s2s-badge">当前</span>}
-                    </div>
-                    <div className="s2s-project-host">{p.host}</div>
-                    <div className="s2s-project-meta">
-                      {p.listSelector && <span className="s2s-tag">列表 ✓</span>}
-                      {p.detail?.titleSelector && <span className="s2s-tag">详情 ✓</span>}
-                      {p.gistURL && <span className="s2s-tag">Gist ✓</span>}
-                      {p.updatedAt && (
-                        <span className="s2s-tip-dim">
-                          {new Date(p.updatedAt).toLocaleDateString()}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <button
-                    className="s2s-btn-mini"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (confirm(`删除项目 ${p.host}？`)) onDelete(p.host);
-                    }}
-                  >🗑</button>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="s2s-actions" style={{ marginTop: 10 }}>
-            <button className="s2s-btn s2s-btn-primary" onClick={onNew}>
-              ➕ 新建项目
-            </button>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

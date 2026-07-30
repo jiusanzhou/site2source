@@ -97,6 +97,11 @@ code {
   font-size: 12px;
   color: #fde68a;
 }
+.s2s-notice-err {
+  background: rgba(239, 68, 68, 0.15);
+  border-left-color: #ef4444;
+  color: #fca5a5;
+}
 
 /* ==================== Section ==================== */
 .s2s-section {
