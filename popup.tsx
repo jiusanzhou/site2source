@@ -18,7 +18,7 @@ import {
 } from "~lib/drpy-generator";
 import { runOnePlusRule, type OnePlusRuleResult, type DetailRuleResult } from "~lib/rule-runner";
 import { uploadToGist } from "~lib/gist-uploader";
-import { askAIDetail, askAIList, trimHTML, hasAIConfig } from "~lib/ai-helper";
+import { askAIDetail, askAIList, askAITemplate, trimHTML, hasAIConfig } from "~lib/ai-helper";
 import {
   sendToActiveTab,
   sendToBackground,
@@ -670,6 +670,24 @@ function Popup() {
       {templateEditor && (
         <URLTemplateEditor
           initial={templateEditor.initial}
+          onAIRefine={async (current) => {
+            // 拉抓到的所有 XHR
+            const r = await sendToBackground<any>({ type: "GET_CAPTURED_XHR" });
+            const xhrs = (r?.xhr || []).map((x: any) => ({ url: x.url, method: x.method }));
+            // 从 pendingAPIExport.home 拿一个响应样本
+            const sample = pendingAPIExport?.home?.respBody?.slice(0, 800);
+            const result = await askAITemplate(xhrs, current, sample);
+            if (result.errors?.length) {
+              alert("AI 补正失败: " + result.errors.join("; "));
+              return null;
+            }
+            return {
+              homeURL: result.homeURL || current.homeURL,
+              detailURL: current.detailURL !== undefined ? (result.detailURL || current.detailURL) : undefined,
+              searchURL: current.searchURL !== undefined ? (result.searchURL || current.searchURL) : undefined,
+              categories: result.categories && result.categories.length > 0 ? result.categories : current.categories,
+            };
+          }}
           onCancel={() => {
             setTemplateEditor(null);
             setPendingAPIExport(null);

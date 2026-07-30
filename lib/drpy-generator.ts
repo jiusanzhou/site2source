@@ -437,8 +437,12 @@ export function generateAPIDrpySpider(input: APIGenerateInput): string {
   } else if (input.home.method === "POST") {
     lines.push(`    let { data } = await this.postJson(url, {});`);
   } else {
-    lines.push(`    let data = await request(url);`);
-    lines.push(`    try { data = JSON.parse(data); } catch(e) {}`);
+    lines.push(`    let raw = await request(url);`);
+    lines.push(`    let data;`);
+    lines.push(`    try { data = JSON.parse(raw); } catch(e) {`);
+    lines.push(`      log('[s2s] home 接口非 JSON: ' + String(raw).slice(0, 200));`);
+    lines.push(`      return [];`);
+    lines.push(`    }`);
   }
   lines.push(`    let list = ${jsonPathToJS(input.home.listPath, "data")} || [];`);
   lines.push(`    let videos = list.map(function(v) {`);
@@ -462,8 +466,12 @@ export function generateAPIDrpySpider(input: APIGenerateInput): string {
     if (input.detail.method === "POST") {
       lines.push(`    let { data } = await this.postJson(url, {});`);
     } else {
-      lines.push(`    let data = await request(url);`);
-      lines.push(`    try { data = JSON.parse(data); } catch(e) {}`);
+      lines.push(`    let raw = await request(url);`);
+      lines.push(`    let data;`);
+      lines.push(`    try { data = JSON.parse(raw); } catch(e) {`);
+      lines.push(`      log('[s2s] detail 接口非 JSON: ' + String(raw).slice(0, 200));`);
+      lines.push(`      return {};`);
+      lines.push(`    }`);
     }
     lines.push(`    let vod = {`);
     lines.push(`      vod_name: ${accessField(input.detail.fields.name, "data")} || '',`);
@@ -504,8 +512,12 @@ export function generateAPIDrpySpider(input: APIGenerateInput): string {
     if (input.search.method === "POST") {
       lines.push(`    let { data } = await this.postJson(url, {});`);
     } else {
-      lines.push(`    let data = await request(url);`);
-      lines.push(`    try { data = JSON.parse(data); } catch(e) {}`);
+      lines.push(`    let raw = await request(url);`);
+      lines.push(`    let data;`);
+      lines.push(`    try { data = JSON.parse(raw); } catch(e) {`);
+      lines.push(`      log('[s2s] search 接口非 JSON: ' + String(raw).slice(0, 200));`);
+      lines.push(`      return [];`);
+      lines.push(`    }`);
     }
     lines.push(`    let list = ${jsonPathToJS(input.search.listPath, "data")} || [];`);
     lines.push(`    return list.map(function(v) {`);

@@ -369,6 +369,105 @@ export async function askAIJSONPath(
   }
 }
 
+// ============ AI 补正 URL 模板 (V0.15) ============
+
+export interface AITemplateResult {
+  homeURL?: string;
+  detailURL?: string;
+  searchURL?: string;
+  categories?: { name: string; value: string }[];
+  reasoning?: string;
+  errors?: string[];
+}
+
+/**
+ * 让 AI 看抓到的一批 XHR + 用户当前的模板猜想, 输出完整的模板配置
+ * @param xhrs 抓到的所有 API 请求 (最多 30 条, URL only)
+ * @param current 用户当前的模板 (自动猜的, AI 只做微调)
+ * @param sampleBody 一个 home 接口的响应体 (前 800 字符)
+ */
+export async function askAITemplate(
+  xhrs: Array<{ url: string; method: string }>,
+  current: {
+    homeURL: string;
+    detailURL?: string;
+    searchURL?: string;
+    categories?: { name: string; value: string }[];
+  },
+  sampleBody?: string,
+): Promise<AITemplateResult> {
+  const cfg = await getAIConfig();
+
+  const system = `你是影视网站 API 分析专家。给你一批同一站点的 XHR 请求 URL, 你要推断:
+1. 首页/分类列表 API 的完整模板 (含 {cate} 和 {page} 占位符)
+2. 详情 API 模板 (含 {id})
+3. 搜索 API 模板 (含 {wd})
+4. 分类列表: 所有出现过的 category id 组合成 [{name, value}]
+
+规则:
+- {cate} 值可能是数字 (1/2/3) 也可能是字符串 (movie/tv/anime), 保持原始形态
+- {page} 通常是数字, 参数名可能是 page/p/pg/pageNo
+- category 名字如果 URL 里没有语义 (只有 id), 就用常识猜: 1→电影, 2→电视剧, 3→综艺, 4→动漫
+- 如果观察到的分类 id 不足 4 个, 就只输出观察到的, 别瞎编
+- 如果当前用户提供的模板已经对, 就复用不改
+
+输出严格 JSON:
+{
+  "homeURL": "完整 URL 模板",
+  "detailURL": "..." or null,
+  "searchURL": "..." or null,
+  "categories": [{"name": "电影", "value": "1"}],
+  "reasoning": "一句话推理"
+}
+不要 markdown, 只 JSON.`;
+
+  const urlList = xhrs.slice(0, 40).map((x) => `${x.method} ${x.url}`).join("\n");
+  const currentCfg = JSON.stringify(current, null, 2);
+  const user = `当前扩展自动猜的模板:
+${currentCfg}
+
+抓到的所有 XHR:
+${urlList}
+
+${sampleBody ? `\n首页接口响应片段:\n${sampleBody.slice(0, 800)}\n` : ""}
+
+请输出补正后的完整模板配置.`;
+
+  let content: string;
+  try {
+    if (cfg.provider === "chrome-ai") {
+      if (!(await isChromeAIAvailable())) {
+        return { errors: ["Chrome 内置 AI 不可用"] };
+      }
+      content = await callChromeAI(system, user);
+    } else {
+      if (!cfg.key) return { errors: ["未配置 API Key"] };
+      content = await callHTTP(cfg, system, user);
+    }
+  } catch (e: any) {
+    return { errors: [e.message] };
+  }
+
+  const parse = (raw: string): any => {
+    try { return JSON.parse(raw); } catch {}
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (m) { try { return JSON.parse(m[0]); } catch {} }
+    return null;
+  };
+  const p = parse(content);
+  if (!p) return { errors: ["AI 返回非 JSON"] };
+
+  return {
+    homeURL: cleanSel(p.homeURL),
+    detailURL: cleanSel(p.detailURL),
+    searchURL: cleanSel(p.searchURL),
+    categories: Array.isArray(p.categories)
+      ? p.categories.filter((c: any) => c?.name && c?.value)
+      : undefined,
+    reasoning: p.reasoning,
+  };
+}
+
 // ============ helpers ============
 
 function cleanSel(s: any): string | undefined {

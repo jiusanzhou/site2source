@@ -22,10 +22,13 @@ export function URLTemplateEditor({
   initial,
   onOK,
   onCancel,
+  onAIRefine,
 }: {
   initial: TemplateConfig;
   onOK: (cfg: TemplateConfig) => void;
   onCancel: () => void;
+  /** 可选: 让 AI 补正当前编辑中的模板. 传入当前值, 返回 AI 的建议 */
+  onAIRefine?: (current: TemplateConfig) => Promise<TemplateConfig | null>;
 }) {
   const [home, setHome] = useState(initial.homeURL);
   const [detail, setDetail] = useState(initial.detailURL || "");
@@ -36,6 +39,50 @@ export function URLTemplateEditor({
     { name: "综艺", value: "3" },
     { name: "动漫", value: "4" },
   ]);
+  const [aiWorking, setAIWorking] = useState(false);
+  const [aiMsg, setAIMsg] = useState<string>("");
+
+  const askAI = async () => {
+    if (!onAIRefine) return;
+    setAIWorking(true);
+    setAIMsg("🤖 AI 分析所有抓到的 XHR 中...");
+    try {
+      const cur: TemplateConfig = {
+        homeURL: home,
+        detailURL: initial.detailURL !== undefined ? detail : undefined,
+        searchURL: initial.searchURL !== undefined ? search : undefined,
+        categories: cats,
+      };
+      const suggestion = await onAIRefine(cur);
+      if (!suggestion) {
+        setAIMsg("❌ AI 未返回建议");
+        setAIWorking(false);
+        return;
+      }
+      // 逐字段对比 + 应用 (改变的字段闪一下)
+      let changes = 0;
+      if (suggestion.homeURL && suggestion.homeURL !== home) {
+        setHome(suggestion.homeURL);
+        changes++;
+      }
+      if (suggestion.detailURL && suggestion.detailURL !== detail) {
+        setDetail(suggestion.detailURL);
+        changes++;
+      }
+      if (suggestion.searchURL && suggestion.searchURL !== search) {
+        setSearch(suggestion.searchURL);
+        changes++;
+      }
+      if (suggestion.categories && suggestion.categories.length > 0) {
+        setCats(suggestion.categories);
+        changes++;
+      }
+      setAIMsg(changes > 0 ? `✅ AI 更新了 ${changes} 项` : "✅ 你的模板已经是最优的");
+    } catch (e: any) {
+      setAIMsg(`❌ ${e.message}`);
+    }
+    setAIWorking(false);
+  };
 
   const preview = (t: string) =>
     t.replace(/\{cate\}/g, "1").replace(/\{page\}/g, "1").replace(/\{id\}/g, "xxxxx").replace(/\{wd\}/g, "复仇者");
@@ -52,9 +99,26 @@ export function URLTemplateEditor({
       <div className="s2s-modal s2s-modal-lg" onClick={(e) => e.stopPropagation()}>
         <div className="s2s-modal-header">
           <b>🔧 URL 模板确认</b>
-          <button className="s2s-btn-mini" onClick={onCancel}>取消</button>
+          <div style={{ display: "flex", gap: 4 }}>
+            {onAIRefine && (
+              <button
+                className="s2s-btn-mini"
+                onClick={askAI}
+                disabled={aiWorking}
+                title="让 AI 看所有抓到的 XHR 分析出完整模板"
+              >
+                {aiWorking ? "..." : "🤖 AI 补正"}
+              </button>
+            )}
+            <button className="s2s-btn-mini" onClick={onCancel}>取消</button>
+          </div>
         </div>
         <div className="s2s-modal-body">
+          {aiMsg && (
+            <div className={`s2s-notice ${aiMsg.startsWith("❌") ? "s2s-notice-err" : ""}`}>
+              {aiMsg}
+            </div>
+          )}
           <p className="s2s-tip s2s-tip-dim">
             扩展自动把抓到的 URL 里具体值换成了占位符。检查一下, 不对就手动改。
             <br />
