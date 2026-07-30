@@ -1,7 +1,7 @@
 // site2source-ext auto-generated Drpy T4 API spider for www.aiyifan.tv
-// Generated: 2026-07-30T18:53:34.481Z
+// Generated: 2026-07-30T19:07:58.768Z
 
-globalThis.rule = {
+var rule = {
   title: '爱壹帆',
   host: 'https://www.aiyifan.tv',
   homeUrl: '/',

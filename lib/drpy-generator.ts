@@ -67,7 +67,7 @@ export function generateDrpySpider(input: GenerateInput): string {
     ? home.categoryURLPattern.replace("{class}", "{cate}") + "?page={page}"
     : "/vodtype/{cate}-{page}.html";
 
-  lines.push(`globalThis.rule = {`);
+  lines.push(`var rule = {`);
   lines.push(`  title: '${escapeJS(input.siteName)}',`);
   lines.push(`  host: '${resolvedHost}',`);
   lines.push(`  homeUrl: '/',`);
@@ -402,7 +402,7 @@ export function generateAPIDrpySpider(input: APIGenerateInput): string {
   const homeMethod = input.home.method === "POST" ? ";post" : "";
   const homeURL = replacePlaceholders(input.home.urlTemplate);
 
-  lines.push(`globalThis.rule = {`);
+  lines.push(`var rule = {`);
   lines.push(`  title: '${escapeJS(input.siteName)}',`);
   lines.push(`  host: 'https://${input.host}',`);
   lines.push(`  homeUrl: '/',`);
