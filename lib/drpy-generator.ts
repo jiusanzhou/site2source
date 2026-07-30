@@ -1,81 +1,127 @@
 /**
  * Drpy T4 爬虫代码生成器
- * 复用 Go 版 site2source/internal/generator/generic.go 的逻辑
  */
 
-import type { CardSample, ListCandidate } from "./dom-analyzer";
+import type {
+  CapturedMedia,
+  DetailSpec,
+  SerializedSample,
+} from "./messages";
 
 export interface GenerateInput {
   siteName: string;
   baseURL: string;
   host: string;
+
+  // 列表
   listSelector: string;
-  itemSelector: string; // e.g. "li" | "div"
+  itemSelector: string;
   cardCount: number;
   similarity: number;
-  samples: CardSample[];
-  // 未来扩展：detail 页规则、播放规则、m3u8 直链等
-  playURLs?: string[];
+  samples: SerializedSample[];
+
+  // 详情（可选）
+  detail?: DetailSpec;
+
+  // 抓到的媒体（可选）
+  media?: CapturedMedia[];
 }
 
 export function generateDrpySpider(input: GenerateInput): string {
   const lines: string[] = [];
   lines.push(`// site2source-ext auto-generated Drpy T4 spider for ${input.host}`);
-  lines.push(`// Generated URL: ${input.baseURL}`);
-  lines.push(`// ⚠️ detail() / play() / search() 需要人工完善`);
+  lines.push(`// Generated: ${new Date().toISOString()}`);
+  lines.push(`// ⚠️ 分类/搜索/播放解析可能需要人工微调`);
   lines.push("");
+
+  const detail = input.detail || {};
+  const hasDetail = !!(detail.titleSelector || detail.playListSelector);
+  const media = input.media || [];
+  const hasMedia = media.length > 0;
+
   lines.push(`globalThis.rule = {`);
   lines.push(`  title: '${escapeJS(input.siteName)}',`);
   lines.push(`  host: '${input.baseURL}',`);
   lines.push(`  homeUrl: '/',`);
-  lines.push(`  url: '/',                          // TODO: 分类页 URL 模板`);
-  lines.push(`  detailUrl: '',                     // TODO: 详情页 URL 模板`);
+  lines.push(`  url: '/',                          // TODO: 分类页 URL 模板 (fyclass/fypage)`);
+  lines.push(`  detailUrl: '',`);
   lines.push(`  searchUrl: '',                     // TODO: 搜索 URL 模板`);
   lines.push(`  searchable: 0,`);
   lines.push(`  quickSearch: 0,`);
   lines.push(`  filterable: 0,`);
   lines.push(`  headers: {`);
-  lines.push(`    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'`);
+  lines.push(`    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',`);
+  lines.push(`    'Referer': '${input.baseURL}/'`);
   lines.push(`  },`);
   lines.push(`  timeout: 5000,`);
   lines.push("");
-  lines.push(`  // 首页分类（TODO：把网站的分类导航填进来）`);
+  lines.push(`  // 首页分类（TODO: 手动填分类导航）`);
   lines.push(`  class_name: '电影&电视剧',`);
   lines.push(`  class_url:  '1&2',`);
   lines.push("");
-  lines.push(`  // 一级列表（=首页 & 分类页的影片卡片解析）`);
-  lines.push(`  // 由 site2source 从 ${input.cardCount} 个候选卡片自动推断（相似度 ${(input.similarity * 100).toFixed(0)}%）`);
+  lines.push(`  // 一级列表（site2source 自动识别）`);
+  lines.push(`  // ${input.cardCount} 项 · 相似度 ${(input.similarity * 100).toFixed(0)}%`);
   lines.push(`  一级: '${input.listSelector} ${input.itemSelector};*[title],img&&alt,text;img&&data-original||data-src||src;.*(HD|4K|更新|第.集|全.集|完结|连载|\\\\d{4}).*;a&&href',`);
   lines.push("");
-  lines.push(`  // 二级（详情页） TODO`);
+
+  // 二级 —— 有 detail 用推断，无 detail 用兜底
+  lines.push(`  // 二级（详情页）${hasDetail ? "— site2source 从真实详情页学习" : "— 兜底模板，需要微调"}`);
   lines.push(`  二级: {`);
-  lines.push(`    title: 'h1&&Text',`);
-  lines.push(`    img:   '.pic img&&src',`);
-  lines.push(`    desc:  '.detail&&Text',`);
-  lines.push(`    content: '.plot&&Text',`);
-  lines.push(`    tabs: '.play-from&&a',`);
-  lines.push(`    lists: '.playlist',`);
+  lines.push(`    title: '${detail.titleSelector || "h1"}&&Text',`);
+  if (detail.descSelector) {
+    lines.push(`    desc:  '${detail.descSelector}&&Text',`);
+  } else {
+    lines.push(`    desc:  '.detail&&Text',`);
+  }
+  lines.push(`    content: '${detail.descSelector || ".plot,.content"}&&Text',`);
+  if (detail.playTabSelector) {
+    lines.push(`    tabs: '${detail.playTabSelector}&&a',`);
+  } else {
+    lines.push(`    tabs: '.play-from,.playfrom&&a',`);
+  }
+  if (detail.playListSelector) {
+    lines.push(`    lists: '${detail.playListSelector}',`);
+  } else {
+    lines.push(`    lists: '.playlist,.play-list',`);
+  }
   lines.push(`  },`);
   lines.push("");
   lines.push(`  // 搜索 TODO`);
-  lines.push(`  搜索: '',`);
+  lines.push(`  搜索: '*',`);
   lines.push("");
-  lines.push(`  // 播放 TODO：需要根据网站播放页结构写解析`);
 
-  if (input.playURLs && input.playURLs.length > 0) {
-    lines.push(`  // 🎬 site2source 抓到的候选播放地址（供参考）：`);
-    for (const u of input.playURLs.slice(0, 5)) {
-      lines.push(`  //   ${u}`);
+  // 播放解析
+  if (hasMedia) {
+    lines.push(`  // 🎬 播放解析（site2source 抓到 ${media.length} 条视频流）`);
+    // 优先 m3u8 > mp4 > flv > ts
+    const primary = media.find((m) => m.type === "m3u8") || media[0];
+    const referer = primary.referer || input.baseURL + "/";
+    lines.push(`  lazy: async function (flag, id, flags) {`);
+    lines.push(`    // 抓到的样本：`);
+    for (const m of media.slice(0, 5)) {
+      lines.push(`    //   [${m.type}] ${m.url}`);
     }
+    lines.push(`    //`);
+    lines.push(`    // 常见做法：`);
+    lines.push(`    // 1. 拉播放页 HTML: const html = await request(id);`);
+    lines.push(`    // 2. 从 HTML 里正则找 m3u8: const m = html.match(/https?:[^"']+\\\\.m3u8[^"']*/);`);
+    lines.push(`    // 3. return { parse: 0, url: m[0], header: { Referer: HOST } };`);
+    lines.push(`    //`);
+    lines.push(`    // 或者用抓到的直链模式（如果 URL 里有 vodId 就替换）：`);
+    lines.push(`    // return { parse: 0, url: '${primary.url}', header: { Referer: '${referer}' } };`);
+    lines.push(`    return { parse: 1, url: id };  // 默认交给 Drpy 内置嗅探`);
+    lines.push(`  }`);
+  } else {
+    lines.push(`  // 播放解析 TODO`);
+    lines.push(`  lazy: async function (flag, id, flags) {`);
+    lines.push(`    return { parse: 1, url: id };  // 默认交给 Drpy 内置嗅探`);
+    lines.push(`  }`);
   }
 
-  lines.push(`  lazy: async function (flag, id, flags) {`);
-  lines.push(`    return { parse: 1, url: id };`);
-  lines.push(`  }`);
   lines.push(`};`);
   lines.push("");
-  lines.push(`/* 探测到的样本卡片（前 5 张）：`);
-  for (let i = 0; i < input.samples.length; i++) {
+  lines.push(`/* 探测到的样本卡片（前 ${Math.min(5, input.samples.length)} 张）:`);
+  for (let i = 0; i < Math.min(5, input.samples.length); i++) {
     const s = input.samples[i];
     lines.push(`  ${i + 1}. ${s.name}`);
     lines.push(`     URL: ${s.url}`);
@@ -83,6 +129,7 @@ export function generateDrpySpider(input: GenerateInput): string {
     lines.push(`     Remarks: ${s.remarks}`);
   }
   lines.push(`*/`);
+
   return lines.join("\n");
 }
 
