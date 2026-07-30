@@ -328,3 +328,236 @@ function sanitize(s: string): string {
 function escapeJS(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
+
+// ==================== API 型 Drpy 生成 (V0.10) ====================
+
+/**
+ * API 型爬虫的配置输入
+ * 一个 site 需要三类接口的信息:
+ *   home     - 首页/分类列表接口
+ *   detail   - 详情接口 (可选)
+ *   search   - 搜索接口 (可选)
+ * 每个接口需要 URL 模板 + JSONPath 字段映射
+ */
+export interface APIGenerateInput {
+  siteName: string;
+  host: string;
+
+  home: {
+    urlTemplate: string;      // 例如 https://ex.tv/api/vod/list?type={cate}&page={page}
+    method: "GET" | "POST";
+    reqBody?: string;         // POST 时的请求体模板
+    listPath: string;         // JSONPath: 到达列表数组, 如 $.data.list
+    fields: {
+      id?: string;            // 相对路径, 如 vod_id (在 list 数组每项下)
+      name?: string;
+      pic?: string;
+      remarks?: string;
+    };
+  };
+
+  detail?: {
+    urlTemplate: string;      // 例如 /api/vod/detail?id={id}
+    method: "GET" | "POST";
+    fields: {
+      name?: string;
+      pic?: string;
+      desc?: string;
+      playFrom?: string;      // 播放源名字数组 path (可选)
+      playURL?: string;       // 播放地址/剧集列表 path
+    };
+  };
+
+  search?: {
+    urlTemplate: string;      // 例如 /api/search?wd={wd}
+    method: "GET" | "POST";
+    listPath: string;
+    fields: {
+      id?: string;
+      name?: string;
+      pic?: string;
+    };
+  };
+
+  categories?: { name: string; value: string }[];
+}
+
+export function generateAPIDrpySpider(input: APIGenerateInput): string {
+  const lines: string[] = [];
+  lines.push(`// site2source-ext auto-generated Drpy T4 API spider for ${input.host}`);
+  lines.push(`// Generated: ${new Date().toISOString()}`);
+  lines.push("");
+
+  const cats = input.categories || [
+    { name: "电影", value: "1" },
+    { name: "电视剧", value: "2" },
+    { name: "综艺", value: "3" },
+    { name: "动漫", value: "4" },
+  ];
+  const className = cats.map((c) => c.name).join("&");
+  const classValue = cats.map((c) => c.value).join("&");
+
+  const homeMethod = input.home.method === "POST" ? ";post" : "";
+  const homeURL = replacePlaceholders(input.home.urlTemplate);
+
+  lines.push(`globalThis.rule = {`);
+  lines.push(`  title: '${escapeJS(input.siteName)}',`);
+  lines.push(`  host: 'https://${input.host}',`);
+  lines.push(`  homeUrl: '/',`);
+  lines.push(`  url: '${escapeJS(homeURL)}${homeMethod}',`);
+  lines.push(`  detailUrl: '${input.detail ? escapeJS(replacePlaceholders(input.detail.urlTemplate)) : ""}',`);
+
+  // 搜索
+  if (input.search) {
+    const sMethod = input.search.method === "POST" ? ";post" : "";
+    lines.push(`  searchUrl: '${escapeJS(replacePlaceholders(input.search.urlTemplate))}${sMethod}',`);
+  }
+
+  lines.push(`  class_name: '${className}',`);
+  lines.push(`  class_url: '${classValue}',`);
+  lines.push(`  filter_url: '',`);
+  lines.push(`  filter: {},`);
+  lines.push(`  filter_def: {},`);
+  lines.push(`  headers: { 'User-Agent': 'MOBILE_UA' },`);
+  lines.push(`  timeout: 5000,`);
+  lines.push(`  play_parse: true,`);
+  lines.push(`  limit: 6,`);
+  lines.push(`  double: true,`);
+  lines.push(``);
+
+  // ========== home 一级列表解析 (API 模式) ==========
+  lines.push(`  // 一级列表: 从 JSON API 解析`);
+  lines.push(`  一级: async function(fyclass, fypage, fyfilter) {`);
+  lines.push(`    let url = this.url.replace('fyclass', fyclass).replace('fypage', fypage);`);
+  if (input.home.reqBody) {
+    lines.push(`    let body = '${escapeJS(input.home.reqBody)}'.replace('fyclass', fyclass).replace('fypage', fypage);`);
+    lines.push(`    let { data } = await this.postJson(url, body);`);
+  } else if (input.home.method === "POST") {
+    lines.push(`    let { data } = await this.postJson(url, {});`);
+  } else {
+    lines.push(`    let data = await request(url);`);
+    lines.push(`    try { data = JSON.parse(data); } catch(e) {}`);
+  }
+  lines.push(`    let list = ${jsonPathToJS(input.home.listPath, "data")} || [];`);
+  lines.push(`    let videos = list.map(function(v) {`);
+  lines.push(`      return {`);
+  lines.push(`        vod_id: ${accessField(input.home.fields.id, "v")} || '',`);
+  lines.push(`        vod_name: ${accessField(input.home.fields.name, "v")} || '',`);
+  lines.push(`        vod_pic: ${accessField(input.home.fields.pic, "v")} || '',`);
+  lines.push(`        vod_remarks: ${accessField(input.home.fields.remarks, "v")} || '',`);
+  lines.push(`      };`);
+  lines.push(`    });`);
+  lines.push(`    return videos;`);
+  lines.push(`  },`);
+  lines.push(``);
+
+  // ========== detail 二级解析 (API 模式) ==========
+  if (input.detail) {
+    lines.push(`  // 二级详情: 从 JSON API 解析`);
+    lines.push(`  二级: async function(ids) {`);
+    lines.push(`    let id = ids[0];`);
+    lines.push(`    let url = '${escapeJS(input.detail.urlTemplate)}'.replace('{id}', id);`);
+    if (input.detail.method === "POST") {
+      lines.push(`    let { data } = await this.postJson(url, {});`);
+    } else {
+      lines.push(`    let data = await request(url);`);
+      lines.push(`    try { data = JSON.parse(data); } catch(e) {}`);
+    }
+    lines.push(`    let vod = {`);
+    lines.push(`      vod_name: ${accessField(input.detail.fields.name, "data")} || '',`);
+    lines.push(`      vod_pic: ${accessField(input.detail.fields.pic, "data")} || '',`);
+    lines.push(`      vod_content: ${accessField(input.detail.fields.desc, "data")} || '',`);
+    lines.push(`    };`);
+    // 播放地址
+    if (input.detail.fields.playURL) {
+      lines.push(`    // 剧集列表`);
+      lines.push(`    let playRaw = ${accessField(input.detail.fields.playURL, "data")};`);
+      if (input.detail.fields.playFrom) {
+        lines.push(`    let playFrom = ${accessField(input.detail.fields.playFrom, "data")};`);
+        lines.push(`    if (Array.isArray(playFrom)) {`);
+        lines.push(`      vod.vod_play_from = playFrom.join('$$$');`);
+        lines.push(`      // playRaw 应该是每线路一个字符串, 格式 "第01集\$url1#第02集\$url2"`);
+        lines.push(`      vod.vod_play_url = Array.isArray(playRaw) ? playRaw.join('$$$') : String(playRaw || '');`);
+        lines.push(`    } else {`);
+        lines.push(`      vod.vod_play_from = 'default';`);
+        lines.push(`      vod.vod_play_url = typeof playRaw === 'string' ? playRaw : JSON.stringify(playRaw);`);
+        lines.push(`    }`);
+      } else {
+        lines.push(`    vod.vod_play_from = 'default';`);
+        lines.push(`    vod.vod_play_url = typeof playRaw === 'string' ? playRaw : JSON.stringify(playRaw);`);
+      }
+    }
+    lines.push(`    return vod;`);
+    lines.push(`  },`);
+    lines.push(``);
+  }
+
+  // ========== search ==========
+  if (input.search) {
+    lines.push(`  // 搜索`);
+    lines.push(`  搜索: async function(wd, quick) {`);
+    lines.push(`    let url = '${escapeJS(input.search.urlTemplate)}'.replace('{wd}', encodeURIComponent(wd));`);
+    if (input.search.method === "POST") {
+      lines.push(`    let { data } = await this.postJson(url, {});`);
+    } else {
+      lines.push(`    let data = await request(url);`);
+      lines.push(`    try { data = JSON.parse(data); } catch(e) {}`);
+    }
+    lines.push(`    let list = ${jsonPathToJS(input.search.listPath, "data")} || [];`);
+    lines.push(`    return list.map(function(v) {`);
+    lines.push(`      return {`);
+    lines.push(`        vod_id: ${accessField(input.search.fields.id, "v")} || '',`);
+    lines.push(`        vod_name: ${accessField(input.search.fields.name, "v")} || '',`);
+    lines.push(`        vod_pic: ${accessField(input.search.fields.pic, "v")} || '',`);
+    lines.push(`      };`);
+    lines.push(`    });`);
+    lines.push(`  },`);
+    lines.push(``);
+  }
+
+  // ========== 播放解析 (交给 drpy 嗅探) ==========
+  lines.push(`  // 播放: 交给 Drpy 内置嗅探`);
+  lines.push(`  播放: async function(flag, id, flags) {`);
+  lines.push(`    return { parse: 1, url: id };`);
+  lines.push(`  }`);
+  lines.push(`};`);
+
+  return lines.join("\n");
+}
+
+/** 把用户配置的 URL 模板里 {cate}/{page}/{wd}/{id} 替换成 Drpy 变量 */
+function replacePlaceholders(t: string): string {
+  return t
+    .replace(/\{cate\}/g, "fyclass")
+    .replace(/\{page\}/g, "fypage")
+    .replace(/\{wd\}/g, "**")
+    .replace(/\{id\}/g, "{id}");
+}
+
+/**
+ * 把 JSONPath (子集: $.a.b[*].c) 翻译成 JS 访问代码
+ * @param path 如 "$.data.list"
+ * @param varName 数据变量名, 如 "data"
+ * 返回 "data?.data?.list"
+ */
+function jsonPathToJS(path: string, varName: string): string {
+  if (!path || path === "$") return varName;
+  const rest = path.replace(/^\$\.?/, "");
+  const parts = rest.split(/[.[\]]/).filter(Boolean);
+  let expr = varName;
+  for (const p of parts) {
+    if (p === "*") continue; // 列表迭代由 map 处理
+    if (/^\d+$/.test(p)) expr += `[${p}]`;
+    else expr += `?.${p}`;
+  }
+  return expr;
+}
+
+/** 生成访问某个字段的 JS 表达式 (用于 map 回调里, v 是数组元素) */
+function accessField(path: string | undefined, varName: string): string {
+  if (!path) return "''";
+  // 用户可能填相对路径 (无 $) 或绝对路径 ($.foo)
+  if (path.startsWith("$")) return jsonPathToJS(path, varName);
+  // 相对路径: 认为在当前元素下
+  return `${varName}?.${path.replace(/^\./, "")}`;
+}

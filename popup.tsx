@@ -12,7 +12,9 @@ import type {
 } from "~lib/messages";
 import {
   generateDrpySpider,
+  generateAPIDrpySpider,
   generateTVBoxJSON,
+  type APIGenerateInput,
 } from "~lib/drpy-generator";
 import { runOnePlusRule, type OnePlusRuleResult, type DetailRuleResult } from "~lib/rule-runner";
 import { uploadToGist } from "~lib/gist-uploader";
@@ -40,6 +42,17 @@ import { ApiPanel } from "~popup/api-panel";
 import "./popup.css";
 
 // ==================== component ====================
+
+/** 把抓到的 URL 里的具体 type/page 参数替换成 {cate}/{page} 占位符 */
+function normalizeAPIURLForCate(url: string): string {
+  return url
+    // type/tid/cid = 数字 → {cate}
+    .replace(/([?&](?:type|tid|cid|cat|category|class)=)[^&]+/i, "$1{cate}")
+    // page/p = 数字 → {page}
+    .replace(/([?&](?:page|p|pg|pageNo|page_num)=)\d+/i, "$1{page}")
+    // 路径里的 /vodtype/1.html
+    .replace(/\/(\w+type|category)\/(\d+)/i, "/$1/{cate}");
+}
 
 function Popup() {
   const [step, setStep] = useState<Step>("start");
@@ -597,7 +610,44 @@ function Popup() {
       </header>
 
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
-      {showApi && <ApiPanel onClose={() => setShowApi(false)} />}
+      {showApi && (
+        <ApiPanel
+          onClose={() => setShowApi(false)}
+          onExport={(cfg) => {
+            // 用 API 型规则生成器直接吐出 spider, 下载
+            const site = state.site;
+            if (!site) {
+              alert("先在起始页 🔎 分析一下, 让扩展知道站点信息");
+              return;
+            }
+            const apiInput: APIGenerateInput = {
+              siteName: site.siteName,
+              host: site.host.replace(/^https?:\/\//, ""),
+              home: {
+                urlTemplate: normalizeAPIURLForCate(cfg.home.url),
+                method: cfg.home.method as any,
+                reqBody: cfg.home.reqBody,
+                listPath: cfg.home.listPath || "$",
+                fields: cfg.home.fields || {},
+              },
+              detail: cfg.detail ? {
+                urlTemplate: cfg.detail.url.replace(/(\?|&)(id|vod_id|movie_id)=[^&]+/i, "$1$2={id}"),
+                method: cfg.detail.method as any,
+                fields: cfg.detail.fields || {},
+              } : undefined,
+              search: cfg.search ? {
+                urlTemplate: cfg.search.url.replace(/(\?|&)(wd|keyword|q|search)=[^&]+/i, "$1$2={wd}"),
+                method: cfg.search.method as any,
+                listPath: cfg.search.listPath || "$",
+                fields: cfg.search.fields || {},
+              } : undefined,
+            };
+            const spider = generateAPIDrpySpider(apiInput);
+            downloadText(`${apiInput.host}.js`, spider, "text/javascript");
+            alert(`✅ 已下载 API 型爬虫: ${apiInput.host}.js\n\n可以直接上传到 Gist 或放到 TVBox 里测试。`);
+          }}
+        />
+      )}
       {showProjects && (
         <ProjectsPanel
           projects={projects}

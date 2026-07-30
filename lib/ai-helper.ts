@@ -307,6 +307,68 @@ export async function askAIList(
   return askAI("list", htmlSnippet, pageURL, existing);
 }
 
+// ============ AI 猜 XHR 用途 ============
+
+export interface AIJSONPathResult {
+  tags?: Array<{
+    url: string;
+    role: "home" | "detail" | "search" | null;
+    reason?: string;
+  }>;
+  errors?: string[];
+}
+
+/**
+ * 给 AI 一批 XHR 记录, 让它标记每条的用途
+ * @param xhrs 简化过的 XHR 列表 (url + method + respBody 前 500 字符)
+ */
+export async function askAIJSONPath(
+  xhrs: Array<{ url: string; method: string; respBody: string }>,
+): Promise<AIJSONPathResult> {
+  const cfg = await getAIConfig();
+  const system = `你是网络接口分析专家。给你一批影视网站的 XHR 请求, 你要判断每条的用途:
+
+- home: 影视列表接口 (返回多部影片, 一般是首页/分类/推荐)
+- detail: 影片详情接口 (返回单部影片信息 + 剧集列表)
+- search: 搜索接口 (URL 里通常带 wd/keyword/q/search)
+- null: 与影视无关 (统计/日志/配置/广告等)
+
+输出严格 JSON:
+{"tags": [{"url": "...", "role": "home|detail|search|null", "reason": "一句话"}]}
+不要 markdown, 只 JSON.`;
+
+  const user = `请分析这些 XHR (URL + 响应体片段), 标记每条的用途:\n\n${xhrs
+    .map((x, i) => `[${i}] ${x.method} ${x.url}\n响应片段: ${x.respBody.slice(0, 400)}\n`)
+    .join("\n")}`;
+
+  let content: string;
+  try {
+    if (cfg.provider === "chrome-ai") {
+      if (!(await isChromeAIAvailable())) {
+        return { errors: ["Chrome 内置 AI 不可用"] };
+      }
+      content = await callChromeAI(system, user);
+    } else {
+      if (!cfg.key) return { errors: ["未配置 API Key"] };
+      content = await callHTTP(cfg, system, user);
+    }
+  } catch (e: any) {
+    return { errors: [e.message] };
+  }
+
+  try {
+    const parsed = JSON.parse(content);
+    return { tags: parsed.tags || [] };
+  } catch {
+    const m = content.match(/\{[\s\S]*\}/);
+    if (m) {
+      try { return { tags: JSON.parse(m[0]).tags || [] }; }
+      catch { return { errors: ["AI 返回非 JSON"] }; }
+    }
+    return { errors: ["AI 返回非 JSON"] };
+  }
+}
+
 // ============ helpers ============
 
 function cleanSel(s: any): string | undefined {
