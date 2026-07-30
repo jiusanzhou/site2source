@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import type { CapturedXHR, Message } from "~lib/messages";
 import { sendToBackground, copyToClipboard, shortURL } from "~lib/popup-helpers";
 import { analyzeJSON, type JSONField } from "~lib/json-analyzer";
+import { detectPlayFormat, generatePlayParseSnippet } from "~lib/play-format-detector";
 import { askAIJSONPath, hasAIConfig } from "~lib/ai-helper";
 
 type Role = "home" | "detail" | "search";
@@ -229,9 +230,9 @@ export function ApiPanel({
                         return;
                       }
                       onExport({
-                        home: homeXHR ? augment(homeXHR) : undefined,
-                        detail: detailXHR ? augment(detailXHR) : undefined,
-                        search: searchXHR ? augment(searchXHR) : undefined,
+                        home: homeXHR ? augment(homeXHR, "home") : undefined,
+                        detail: detailXHR ? augment(detailXHR, "detail") : undefined,
+                        search: searchXHR ? augment(searchXHR, "search") : undefined,
                       } as any);
                       onClose();
                     }}
@@ -249,9 +250,10 @@ export function ApiPanel({
 }
 
 /** 从 XHR 里自动分析 JSONPath 字段 (用于导出) */
-function augment(x: CapturedXHR): any {
+function augment(x: CapturedXHR, role?: Role): any {
   const fields: any = {};
   let listPath = "";
+  let playSnippet: string | undefined;
   try {
     if (x.respBody) {
       const parsed = JSON.parse(x.respBody);
@@ -274,9 +276,17 @@ function augment(x: CapturedXHR): any {
           if (f.kind === "playURL") fields.playURL = fields.playURL || f.path;
         }
       }
+      // 对详情接口, 额外做 playURL 智能识别
+      if (role === "detail") {
+        const formats = detectPlayFormat(parsed);
+        if (formats.length > 0) {
+          playSnippet = generatePlayParseSnippet(formats[0]);
+          fields.playURL = fields.playURL || formats[0].playURLPath;
+        }
+      }
     }
   } catch {}
-  return { ...x, fields, listPath };
+  return { ...x, fields, listPath, playSnippet };
 }
 
 function XHRRow({
@@ -320,17 +330,35 @@ function XHRDetail({
   onSetRole: (r: Role | null) => void;
 }) {
   const [fields, setFields] = useState<JSONField[]>([]);
+  const [playFormats, setPlayFormats] = useState<any[]>([]);
+  const [replaying, setReplaying] = useState(false);
+  const [replayResult, setReplayResult] = useState<any>(null);
 
   useEffect(() => {
     if (x.respBody) {
       try {
         const parsed = JSON.parse(x.respBody);
         setFields(analyzeJSON(parsed));
+        setPlayFormats(detectPlayFormat(parsed));
       } catch {
         setFields([]);
+        setPlayFormats([]);
       }
     }
+    setReplayResult(null);
   }, [x.url, x.respBody]);
+
+  const replay = async () => {
+    setReplaying(true);
+    setReplayResult(null);
+    try {
+      const r = await sendToBackground<any>({ type: "REPLAY_XHR", xhr: x });
+      setReplayResult(r);
+    } catch (e: any) {
+      setReplayResult({ ok: false, error: e.message });
+    }
+    setReplaying(false);
+  };
 
   return (
     <div className="s2s-xhr-detail">
@@ -354,13 +382,61 @@ function XHRDetail({
         <div className="s2s-detail-url">
           <code>{x.url}</code>
           <button className="s2s-btn-mini" onClick={() => copyToClipboard(x.url)}>📋</button>
+          <button
+            className="s2s-btn-mini"
+            onClick={replay}
+            disabled={replaying}
+            title="重新请求这个 API"
+          >
+            {replaying ? "..." : "▶ 重播"}
+          </button>
         </div>
       </div>
+
+      {replayResult && (
+        <div className={`s2s-notice ${replayResult.ok ? "" : "s2s-notice-err"}`}>
+          {replayResult.ok ? (
+            <>
+              ✅ HTTP {replayResult.status} · {replayResult.contentType} · {replayResult.body?.length || 0} bytes
+              <details style={{ marginTop: 4 }}>
+                <summary>查看响应</summary>
+                <pre className="s2s-json-raw" style={{ maxHeight: 150 }}>
+                  {(() => {
+                    try {
+                      return JSON.stringify(JSON.parse(replayResult.body), null, 2).slice(0, 3000);
+                    } catch {
+                      return replayResult.body?.slice(0, 3000);
+                    }
+                  })()}
+                </pre>
+              </details>
+            </>
+          ) : (
+            <>❌ {replayResult.error || `HTTP ${replayResult.status}`}</>
+          )}
+        </div>
+      )}
 
       {x.reqBody && (
         <div className="s2s-detail-row">
           <b>请求体:</b>
           <code style={{ fontSize: 10, wordBreak: "break-all" }}>{x.reqBody.slice(0, 200)}</code>
+        </div>
+      )}
+
+      {/* V0.11: 剧集列表格式识别 (仅 detail 角色) */}
+      {role === "detail" && playFormats.length > 0 && (
+        <div className="s2s-detail-row">
+          <b>🎬 剧集列表格式:</b>
+          <div className="s2s-play-fmt">
+            <span className="s2s-badge">{playFormats[0].kind}</span>
+            {" "}
+            <code className="s2s-json-path">{playFormats[0].playURLPath}</code>
+            <div className="s2s-tip-dim" style={{ marginTop: 3 }}>
+              {playFormats[0].reasoning}
+              {playFormats[0].sample && ` — ${playFormats[0].sample.slice(0, 60)}`}
+            </div>
+          </div>
         </div>
       )}
 

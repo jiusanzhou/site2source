@@ -424,6 +424,40 @@ chrome.runtime.onMessage.addListener((msg: Message | any, _sender, sendResponse)
     return true;
   }
 
+  if (msg.type === "REPLAY_XHR") {
+    // 在 background 里重播抓到的请求 (带上原 headers + body)
+    (async () => {
+      try {
+        const req = msg.xhr as CapturedXHR;
+        const headers: Record<string, string> = {};
+        for (const [k, v] of Object.entries(req.reqHeaders || {})) {
+          // 过滤 fetch 禁止设置的 header (Host/Origin/... 由浏览器接管)
+          if (/^(host|origin|referer|content-length|cookie)$/i.test(k)) continue;
+          headers[k] = v;
+        }
+        // Referer 用页面 URL, credentials 用 include 让浏览器带 cookie
+        const res = await fetch(req.url, {
+          method: req.method,
+          headers,
+          body: req.method === "POST" || req.method === "PUT" ? req.reqBody || null : undefined,
+          credentials: "include",
+        });
+        const contentType = res.headers.get("content-type") || "";
+        const text = await res.text();
+        sendResponse({
+          ok: res.ok,
+          status: res.status,
+          contentType,
+          body: text.slice(0, 100000), // 100KB 限
+          truncated: text.length > 100000,
+        });
+      } catch (e: any) {
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
   if (msg.type === "CLEAR_CAPTURED_MEDIA") {
     chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
       const tabId = tabs[0]?.id;

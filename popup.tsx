@@ -39,6 +39,7 @@ import {
   type Step,
 } from "~popup/components";
 import { ApiPanel } from "~popup/api-panel";
+import { URLTemplateEditor, type TemplateConfig } from "~popup/url-template-editor";
 import "./popup.css";
 
 // ==================== component ====================
@@ -65,6 +66,10 @@ function Popup() {
   const [showSettings, setShowSettings] = useState(false);
   const [showProjects, setShowProjects] = useState(false);
   const [showApi, setShowApi] = useState(false);
+  const [pendingAPIExport, setPendingAPIExport] = useState<any>(null);
+  const [templateEditor, setTemplateEditor] = useState<{
+    initial: TemplateConfig;
+  } | null>(null);
   const [projects, setProjects] = useState<Array<ProjectState & { host: string }>>([]);
   const [testResult, setTestResult] = useState<OnePlusRuleResult | null>(null);
   const [detailTestResult, setDetailTestResult] = useState<DetailRuleResult | null>(null);
@@ -620,31 +625,64 @@ function Popup() {
               alert("先在起始页 🔎 分析一下, 让扩展知道站点信息");
               return;
             }
+            // 保存待用的 cfg, 弹模板编辑器
+            setPendingAPIExport(cfg);
+            setTemplateEditor({
+              initial: {
+                homeURL: normalizeAPIURLForCate(cfg.home.url),
+                detailURL: cfg.detail
+                  ? cfg.detail.url.replace(/(\?|&|\/)(id|vod_id|movie_id)[=/]?([^&/?]+)/i, (_m, p1, p2) => `${p1}${p2}={id}`)
+                  : undefined,
+                searchURL: cfg.search
+                  ? cfg.search.url.replace(/(\?|&)(wd|keyword|q|search)=[^&]+/i, "$1$2={wd}")
+                  : undefined,
+                categories: [],
+              },
+            });
+            setShowApi(false);
+          }}
+        />
+      )}
+
+      {templateEditor && (
+        <URLTemplateEditor
+          initial={templateEditor.initial}
+          onCancel={() => {
+            setTemplateEditor(null);
+            setPendingAPIExport(null);
+          }}
+          onOK={(cfg) => {
+            const site = state.site!;
+            const raw = pendingAPIExport;
             const apiInput: APIGenerateInput = {
               siteName: site.siteName,
               host: site.host.replace(/^https?:\/\//, ""),
               home: {
-                urlTemplate: normalizeAPIURLForCate(cfg.home.url),
-                method: cfg.home.method as any,
-                reqBody: cfg.home.reqBody,
-                listPath: cfg.home.listPath || "$",
-                fields: cfg.home.fields || {},
+                urlTemplate: cfg.homeURL,
+                method: raw.home.method as any,
+                reqBody: raw.home.reqBody,
+                listPath: raw.home.listPath || "$",
+                fields: raw.home.fields || {},
               },
-              detail: cfg.detail ? {
-                urlTemplate: cfg.detail.url.replace(/(\?|&)(id|vod_id|movie_id)=[^&]+/i, "$1$2={id}"),
-                method: cfg.detail.method as any,
-                fields: cfg.detail.fields || {},
+              detail: cfg.detailURL && raw.detail ? {
+                urlTemplate: cfg.detailURL,
+                method: raw.detail.method as any,
+                fields: raw.detail.fields || {},
+                playSnippet: raw.detail.playSnippet,
               } : undefined,
-              search: cfg.search ? {
-                urlTemplate: cfg.search.url.replace(/(\?|&)(wd|keyword|q|search)=[^&]+/i, "$1$2={wd}"),
-                method: cfg.search.method as any,
-                listPath: cfg.search.listPath || "$",
-                fields: cfg.search.fields || {},
+              search: cfg.searchURL && raw.search ? {
+                urlTemplate: cfg.searchURL,
+                method: raw.search.method as any,
+                listPath: raw.search.listPath || "$",
+                fields: raw.search.fields || {},
               } : undefined,
+              categories: cfg.categories,
             };
             const spider = generateAPIDrpySpider(apiInput);
             downloadText(`${apiInput.host}.js`, spider, "text/javascript");
-            alert(`✅ 已下载 API 型爬虫: ${apiInput.host}.js\n\n可以直接上传到 Gist 或放到 TVBox 里测试。`);
+            alert(`✅ 已下载 API 型爬虫: ${apiInput.host}.js`);
+            setTemplateEditor(null);
+            setPendingAPIExport(null);
           }}
         />
       )}

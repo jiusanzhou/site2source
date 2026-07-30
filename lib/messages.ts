@@ -30,7 +30,7 @@ export type Message =
   | { type: "CAPTURE_XHR"; xhr: CapturedXHR }
   | { type: "GET_CAPTURED_XHR" }
   | { type: "CLEAR_CAPTURED_XHR" }
-  | { type: "REPLAY_XHR"; url: string; method: string; headers?: Record<string, string>; body?: string }
+  | { type: "REPLAY_XHR"; xhr: CapturedXHR }
   // 状态持久化
   | { type: "SAVE_STATE"; state: Partial<ProjectState> }
   | { type: "GET_STATE" }

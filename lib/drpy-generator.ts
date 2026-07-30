@@ -366,6 +366,8 @@ export interface APIGenerateInput {
       playFrom?: string;      // 播放源名字数组 path (可选)
       playURL?: string;       // 播放地址/剧集列表 path
     };
+    /** V0.11: 从 sampleResponse 探测出来的播放解析片段 (JS 代码) */
+    playSnippet?: string;
   };
 
   search?: {
@@ -468,15 +470,17 @@ export function generateAPIDrpySpider(input: APIGenerateInput): string {
     lines.push(`      vod_pic: ${accessField(input.detail.fields.pic, "data")} || '',`);
     lines.push(`      vod_content: ${accessField(input.detail.fields.desc, "data")} || '',`);
     lines.push(`    };`);
-    // 播放地址
-    if (input.detail.fields.playURL) {
-      lines.push(`    // 剧集列表`);
+    // 播放地址: 优先用探测器生成的 snippet
+    if (input.detail.playSnippet) {
+      lines.push(`    // 剧集列表 (从 sampleResponse 探测的格式)`);
+      lines.push(input.detail.playSnippet);
+    } else if (input.detail.fields.playURL) {
+      lines.push(`    // 剧集列表 (兜底: 假设 MacCMS 字符串)`);
       lines.push(`    let playRaw = ${accessField(input.detail.fields.playURL, "data")};`);
       if (input.detail.fields.playFrom) {
         lines.push(`    let playFrom = ${accessField(input.detail.fields.playFrom, "data")};`);
         lines.push(`    if (Array.isArray(playFrom)) {`);
         lines.push(`      vod.vod_play_from = playFrom.join('$$$');`);
-        lines.push(`      // playRaw 应该是每线路一个字符串, 格式 "第01集\$url1#第02集\$url2"`);
         lines.push(`      vod.vod_play_url = Array.isArray(playRaw) ? playRaw.join('$$$') : String(playRaw || '');`);
         lines.push(`    } else {`);
         lines.push(`      vod.vod_play_from = 'default';`);
