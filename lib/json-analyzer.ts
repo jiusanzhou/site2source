@@ -19,7 +19,7 @@ const FIELD_HINTS: Array<{ kind: JSONField["kind"]; keys: RegExp; valuePattern?:
   { kind: "pic", keys: /^(pic|img|image|thumb|cover|poster|vod_pic|vod_img|imgurl|thumbnail)$/i },
   { kind: "url", keys: /^(url|link|href|vod_id|movie_id|id|detailUrl|detail_url)$/i },
   { kind: "desc", keys: /^(desc|description|intro|summary|synopsis|content|vod_content|blurb)$/i },
-  { kind: "id", keys: /^(id|vod_id|movie_id|film_id|video_id|_id)$/i },
+  { kind: "id", keys: /^(id|vod_id|movie_id|film_id|video_id|_id|link|href|url|videoKey|slug)$/i },
   { kind: "playURL", keys: /^(play_url|playUrl|m3u8|videoUrl|video_url|source)$/i, valuePattern: /\.m3u8|\.mp4|http/i },
   // 列表类
   { kind: "list", keys: /^(list|data|items|results|videos|movies|films|content|records)$/i },
@@ -61,13 +61,19 @@ export function analyzeJSON(root: any, maxDepth = 5): JSONField[] {
           (h) => h.keys.test(k) && (!h.valuePattern || (typeof v === "string" && h.valuePattern.test(v)))
         );
         if (hint) {
-          pushCandidate({
-            path: childPath,
-            kind: hint.kind,
-            count: 1,
-            confidence: 0.9,
-            sample: previewValue(v),
-          });
+          // 关键: kind=list 只在值真的是数组时才认
+          // 否则 `data`/`items` 之类的包装对象会被误判为 list
+          if (hint.kind === "list" && !Array.isArray(v)) {
+            // 跳过, 继续 walk 进去看子节点
+          } else {
+            pushCandidate({
+              path: childPath,
+              kind: hint.kind,
+              count: Array.isArray(v) ? v.length : 1,
+              confidence: 0.9,
+              sample: previewValue(v),
+            });
+          }
         }
         // 图片值检测 (即使 key 不像也检测 URL 特征)
         if (typeof v === "string" && /\.(jpg|jpeg|png|webp|gif)(\?|$)/i.test(v)) {
@@ -114,6 +120,8 @@ export function analyzeJSON(root: any, maxDepth = 5): JSONField[] {
     const ra = rank[a.kind] ?? 99;
     const rb = rank[b.kind] ?? 99;
     if (ra !== rb) return ra - rb;
+    // 同 kind: list 按项数降序 (16 项优先于 1 项), 其他按 confidence 降序
+    if (a.kind === "list") return (b.count || 0) - (a.count || 0);
     return b.confidence - a.confidence;
   });
 

@@ -258,7 +258,12 @@ function augment(x: CapturedXHR, role?: Role): any {
     if (x.respBody) {
       const parsed = JSON.parse(x.respBody);
       const analyzed = analyzeJSON(parsed);
-      const list = analyzed.find((f) => f.kind === "list");
+      // 选 list: 优先 count>=3 (真列表), 其次任意
+      // 避免选到 count=1 的包装数组
+      const lists = analyzed.filter((f) => f.kind === "list");
+      const list =
+        lists.find((f) => (f.count || 0) >= 3) ||
+        lists.sort((a, b) => (b.count || 0) - (a.count || 0))[0];
       if (list) listPath = list.path;
       // 从 list[*].xxx 里提字段 (相对路径, 去掉 listPath 前缀)
       for (const f of analyzed) {

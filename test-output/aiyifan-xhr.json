@@ -1,0 +1,40 @@
+{
+  "xhrCount": 4,
+  "mediaCount": 1,
+  "xhrSample": [
+    {
+      "url": "https://ppt.aiyifan.tv/play/o?cinema=1",
+      "method": "POST",
+      "status": 200,
+      "ct": "application/json; charset=utf-8",
+      "bodyLen": 3110
+    },
+    {
+      "url": "https://upload.aiyifan.tv/api/home/getIndexVideo?cinema=1&size=16&vv=57bda21d09ed3a93df6980c02698615",
+      "method": "GET",
+      "status": 200,
+      "ct": "application/json; charset=utf-8",
+      "bodyLen": 17090
+    },
+    {
+      "url": "https://upload.aiyifan.tv/api/home/getAllVideo?cinema=1&set=0&size=16&cacheable=1",
+      "method": "GET",
+      "status": 200,
+      "ct": "application/json; charset=utf-8",
+      "bodyLen": 50000
+    },
+    {
+      "url": "https://m10.aiyifan.tv/api/list/Search?cinema=1&page=1&size=36&orderby=0&desc=1&cid=0,1,3&isserial=-",
+      "method": "GET",
+      "status": 200,
+      "ct": "application/json; charset=utf-8",
+      "bodyLen": 28006
+    }
+  ],
+  "allXHRUrls": [
+    "https://ppt.aiyifan.tv/play/o?cinema=1",
+    "https://upload.aiyifan.tv/api/home/getIndexVideo?cinema=1&size=16&vv=57bda21d09ed3a93df6980c026986156&pub=CJSuDJGqC3apC2umD34vELyfewzCJ0pBZ4sDouoDYurCryRiXkR6XaQCXgR6h8Q61Yoi9gP732RcB6S6Xkp6ZCQcgzD3SrD6OqE31XOc9XOZGvCZ4uPZarC6HZC3LaOJ5YDs2",
+    "https://upload.aiyifan.tv/api/home/getAllVideo?cinema=1&set=0&size=16&cacheable=1",
+    "https://m10.aiyifan.tv/api/list/Search?cinema=1&page=1&size=36&orderby=0&desc=1&cid=0,1,3&isserial=-1&isIndex=-1&isfree=-1&vv=adac1f296709490fb7aca695acedc1b4&pub=CJSuDJGqC3apC2umD34vELyfewzCJ0pBZ4sDouoDYurCryRiXkR6XaQCXgR6h8Q61Yoi9gP732RcB6S6Xkp6ZCQcgzD3SrD6OqE31XOc9XOZGvCZ4uPZarC6HZC3LaOJ5YDs2"
+  ]
+}

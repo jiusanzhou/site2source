@@ -552,18 +552,34 @@ function replacePlaceholders(t: string): string {
 
 /**
  * 把 JSONPath (子集: $.a.b[*].c) 翻译成 JS 访问代码
- * @param path 如 "$.data.list"
+/**
+ * JSONPath → JS 访问代码
+ * @param path 如 "$.data.list" / "$.data.info[*].guessYouLike"
  * @param varName 数据变量名, 如 "data"
- * 返回 "data?.data?.list"
+ * @param treatMiddleWildcard "as-index-0" 时中间的 [*] 用 [0] 取 (常见于外层包装数组只有 1 项)
+ *                            "skip" 时忽略 [*] (旧行为, 只在 [*] 位于末尾时正确)
+ * 返回 "data?.data?.list" 或 "data?.data?.info?.[0]?.guessYouLike"
  */
-function jsonPathToJS(path: string, varName: string): string {
+function jsonPathToJS(
+  path: string,
+  varName: string,
+  treatMiddleWildcard: "as-index-0" | "skip" = "as-index-0",
+): string {
   if (!path || path === "$") return varName;
   const rest = path.replace(/^\$\.?/, "");
   const parts = rest.split(/[.[\]]/).filter(Boolean);
   let expr = varName;
-  for (const p of parts) {
-    if (p === "*") continue; // 列表迭代由 map 处理
-    if (/^\d+$/.test(p)) expr += `[${p}]`;
+  // 检查每个 [*] 是否是末尾 - 是则忽略 (由 map 处理), 中间的按策略处理
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    if (p === "*") {
+      const isLast = i === parts.length - 1;
+      if (isLast) continue; // 末尾 [*] 由外层 map 处理
+      if (treatMiddleWildcard === "as-index-0") expr += `?.[0]`;
+      // "skip": 什么都不加, 会得到错的表达式
+      continue;
+    }
+    if (/^\d+$/.test(p)) expr += `?.[${p}]`;
     else expr += `?.${p}`;
   }
   return expr;
