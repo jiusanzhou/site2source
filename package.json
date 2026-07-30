@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "plasmo dev",
     "build": "plasmo build",
-    "package": "plasmo package"
+    "package": "plasmo package",
+    "test": "node tests/e2e-smoke.mjs"
   },
   "dependencies": {
     "plasmo": "0.90.5",
