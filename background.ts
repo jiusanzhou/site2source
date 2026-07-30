@@ -6,14 +6,19 @@
  * 3. popup 关闭后仍保留数据
  */
 
-import type { CapturedMedia, ProjectState, Message } from "~lib/messages";
+import type { CapturedMedia, CapturedXHR, ProjectState, Message } from "~lib/messages";
 
 const MEDIA_EXT_RE = /\.(m3u8|mp4|flv|ts)(\?|$)/i;
+// 判断"可能是 API"的启发式: 路径含常见关键词, 或返回内容是 JSON
+const API_URL_RE = /\/(api|json|ajax|data|search|list|category|detail|vod|film|movie|tv|content|feed)/i;
+// 排除掉一堆噪音
+const API_SKIP_RE = /\.(js|css|png|jpg|jpeg|gif|webp|svg|woff2?|ttf|ico|mp4|m3u8|ts|flv)(\?|$)/i;
 // 旧: 单条 state; 新: 按 host 存的项目库
 const STATE_KEY = "site2source:state";           // legacy (仍读, 兼容老版本)
 const PROJECTS_KEY = "site2source:projects";     // { [host]: ProjectState }
 const ACTIVE_KEY = "site2source:active";         // 当前正在编辑的 host
 const MEDIA_KEY = "site2source:media";
+const XHR_KEY = "site2source:xhr";
 
 function detectMediaType(url: string): string | null {
   const m = url.match(MEDIA_EXT_RE);
@@ -88,7 +93,200 @@ async function clearMediaForTab(tabId: number) {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   clearMediaForTab(tabId);
+  clearXHRForTab(tabId);
 });
+
+// ==================== 注入 main world XHR hook ====================
+//
+// Plasmo 目前的 content_scripts 无法在 manifest 里可靠登记 world:MAIN 脚本,
+// 改用 chrome.scripting.executeScript 手动注入到 page 的 main world.
+// 只有当 popup 打开或用户主动"启用抓包"时才注入, 避免污染所有页面.
+
+const injectedTabs = new Set<number>();
+
+async function injectXHRHook(tabId: number) {
+  if (injectedTabs.has(tabId)) return;
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      world: "MAIN",
+      func: xhrHookFn,
+    });
+    injectedTabs.add(tabId);
+  } catch (e) {
+    console.warn("[s2s] inject XHR hook failed", e);
+  }
+}
+
+/**
+ * 会被序列化后注入到 page main world 的函数.
+ * 只能用 DOM API + window.postMessage.
+ * hook fetch/XHR, 抓到 JSON/text 响应就 postMessage 出来.
+ * isolated world 的 inspector.ts 会监听并转发到 background.
+ */
+function xhrHookFn() {
+  if ((window as any).__s2s_xhr_hooked) return;
+  (window as any).__s2s_xhr_hooked = true;
+
+  const MAX_RESP = 50000;
+  const IGNORE_RE = /\.(js|css|png|jpg|jpeg|gif|webp|svg|woff2?|ttf|ico|mp4|m3u8|ts|flv|mp3)(\?|$)/i;
+
+  const report = (payload: any) => {
+    try {
+      window.postMessage({ __s2s_xhr: true, payload }, "*");
+    } catch {}
+  };
+
+  const truncate = (s: string) => {
+    if (!s) return { body: "", truncated: false };
+    if (s.length > MAX_RESP) return { body: s.slice(0, MAX_RESP), truncated: true };
+    return { body: s, truncated: false };
+  };
+
+  // fetch hook
+  const origFetch = window.fetch;
+  window.fetch = async function (input: any, init?: any) {
+    const url = typeof input === "string" ? input : input?.url || "";
+    const method = init?.method || (typeof input === "object" ? input.method : "GET") || "GET";
+    const reqBody = init?.body
+      ? typeof init.body === "string"
+        ? init.body
+        : "[binary]"
+      : undefined;
+
+    if (IGNORE_RE.test(url)) return origFetch(input, init);
+
+    const resp = await origFetch(input, init);
+    try {
+      const clone = resp.clone();
+      const ct = clone.headers.get("content-type") || "";
+      if (/json|xml|text/i.test(ct)) {
+        const text = await clone.text();
+        const t = truncate(text);
+        report({
+          url,
+          method,
+          reqBody,
+          respStatus: resp.status,
+          respContentType: ct,
+          respBody: t.body,
+          respTruncated: t.truncated,
+          timestamp: Date.now(),
+          pageURL: location.href,
+        });
+      }
+    } catch {}
+    return resp;
+  };
+
+  // XHR hook
+  const XHR = window.XMLHttpRequest;
+  const origOpen = XHR.prototype.open;
+  const origSend = XHR.prototype.send;
+  const origSetHeader = XHR.prototype.setRequestHeader;
+
+  XHR.prototype.open = function (method: string, url: string) {
+    (this as any).__s2s_method = method;
+    (this as any).__s2s_url = url;
+    (this as any).__s2s_headers = {};
+    // @ts-ignore
+    return origOpen.apply(this, arguments);
+  };
+  XHR.prototype.setRequestHeader = function (k: string, v: string) {
+    ((this as any).__s2s_headers = (this as any).__s2s_headers || {})[k] = v;
+    // @ts-ignore
+    return origSetHeader.apply(this, arguments);
+  };
+  XHR.prototype.send = function (body?: any) {
+    const self = this as any;
+    const url = self.__s2s_url || "";
+    if (!IGNORE_RE.test(url)) {
+      this.addEventListener("load", function () {
+        try {
+          const ct = self.getResponseHeader("content-type") || "";
+          if (/json|xml|text/i.test(ct)) {
+            const t = truncate(typeof self.responseText === "string" ? self.responseText : "");
+            report({
+              url,
+              method: self.__s2s_method || "GET",
+              reqHeaders: self.__s2s_headers,
+              reqBody: typeof body === "string" ? body : undefined,
+              respStatus: self.status,
+              respContentType: ct,
+              respBody: t.body,
+              respTruncated: t.truncated,
+              timestamp: Date.now(),
+              pageURL: location.href,
+            });
+          }
+        } catch {}
+      });
+    }
+    // @ts-ignore
+    return origSend.apply(this, arguments);
+  };
+
+  console.log("[s2s] XHR/fetch hook installed (main world, via bg inject)");
+}
+
+// 每次页面加载时自动注入 (但 chrome:// / about: 之类的会失败, 静默忽略)
+chrome.webNavigation?.onCommitted?.addListener?.((details) => {
+  if (details.frameId !== 0) return;
+  if (!/^https?:/.test(details.url)) return;
+  injectedTabs.delete(details.tabId); // 页面重载, 清标记
+  injectXHRHook(details.tabId);
+});
+
+// 兜底: tabs.onUpdated
+chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
+  if (info.status !== "loading") return;
+  if (!tab.url || !/^https?:/.test(tab.url)) return;
+  injectedTabs.delete(tabId);
+  injectXHRHook(tabId);
+});
+
+// ==================== XHR / API 抓取 ====================
+//
+// background 只能看到 URL + 请求头, 拿不到响应体。
+// 完整流程: content script hook 页面的 fetch/XHR, 把 URL + body 发到 background 存起来。
+// popup 读取列表, 需要重播时向 content script 发 REPLAY_XHR 消息, 由 page 侧真实请求。
+
+async function appendXHR(tabId: number, xhr: CapturedXHR) {
+  const all = (await chrome.storage.local.get([XHR_KEY]))[XHR_KEY] || {};
+  const key = String(tabId);
+  const arr: CapturedXHR[] = all[key] || [];
+  // dedup: 相同 method + url + body 只留一条
+  const sig = `${xhr.method}::${xhr.url}::${xhr.reqBody || ""}`;
+  const existing = arr.findIndex((x) => `${x.method}::${x.url}::${x.reqBody || ""}` === sig);
+  if (existing >= 0) {
+    // 更新时间戳 + 响应
+    arr[existing] = { ...arr[existing], ...xhr };
+  } else {
+    arr.push(xhr);
+    if (arr.length > 200) arr.shift();
+  }
+  all[key] = arr;
+  await chrome.storage.local.set({ [XHR_KEY]: all });
+}
+
+async function getXHRForTab(tabId: number): Promise<CapturedXHR[]> {
+  const all = (await chrome.storage.local.get([XHR_KEY]))[XHR_KEY] || {};
+  return all[String(tabId)] || [];
+}
+
+async function clearXHRForTab(tabId: number) {
+  const all = (await chrome.storage.local.get([XHR_KEY]))[XHR_KEY] || {};
+  delete all[String(tabId)];
+  await chrome.storage.local.set({ [XHR_KEY]: all });
+}
+
+/** 判断一条 URL 是否"值得记录为 API 候选" */
+function isLikelyAPI(url: string, contentType?: string): boolean {
+  if (API_SKIP_RE.test(url)) return false;
+  if (contentType && /json|xml|text/i.test(contentType)) return true;
+  if (API_URL_RE.test(url)) return true;
+  return false;
+}
 
 // ==================== 项目状态持久化 ====================
 
@@ -186,6 +384,42 @@ chrome.runtime.onMessage.addListener((msg: Message | any, _sender, sendResponse)
       const tabId = tabs[0]?.id;
       if (tabId == null) return sendResponse({ media: [] });
       sendResponse({ media: await getMediaForTab(tabId) });
+    });
+    return true;
+  }
+
+  if (msg.type === "CAPTURE_XHR") {
+    // content script hook 到一个 XHR, 让 background 判断是否值得存
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+      const tabId = _sender.tab?.id ?? tabs[0]?.id;
+      if (tabId == null) return sendResponse({ ok: false });
+      const xhr: CapturedXHR = msg.xhr;
+      if (isLikelyAPI(xhr.url, xhr.respContentType)) {
+        await appendXHR(tabId, xhr);
+        // 更新 badge (媒体 + XHR 合计)
+        const media = await getMediaForTab(tabId);
+        const total = media.length + (await getXHRForTab(tabId)).length;
+        chrome.action.setBadgeText({ tabId, text: String(total) });
+      }
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
+
+  if (msg.type === "GET_CAPTURED_XHR") {
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+      const tabId = tabs[0]?.id;
+      if (tabId == null) return sendResponse({ xhr: [] });
+      sendResponse({ xhr: await getXHRForTab(tabId) });
+    });
+    return true;
+  }
+
+  if (msg.type === "CLEAR_CAPTURED_XHR") {
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+      const tabId = tabs[0]?.id;
+      if (tabId != null) await clearXHRForTab(tabId);
+      sendResponse({ ok: true });
     });
     return true;
   }

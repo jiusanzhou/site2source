@@ -30,6 +30,18 @@ export const config = {
   all_frames: false,
 };
 
+// ============ 转发 main world XHR hook 的消息 ============
+// contents/xhr-hook.ts 跑在 main world, hook fetch/XHR 后 postMessage 出来
+// 这里在 isolated world 收, 然后走 chrome.runtime 转到 background
+window.addEventListener("message", (e) => {
+  if (e.source !== window) return;
+  const d = e.data;
+  if (!d || !d.__s2s_xhr || !d.payload) return;
+  try {
+    chrome.runtime.sendMessage({ type: "CAPTURE_XHR", xhr: d.payload });
+  } catch {}
+});
+
 // ==================== 样式注入 ====================
 
 const OVERLAY_ID = "site2source-overlay-container";

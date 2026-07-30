@@ -36,6 +36,7 @@ import {
   SettingsPanel,
   type Step,
 } from "~popup/components";
+import { ApiPanel } from "~popup/api-panel";
 import "./popup.css";
 
 // ==================== component ====================
@@ -50,6 +51,7 @@ function Popup() {
   const [notice, setNotice] = useState<string>("");
   const [showSettings, setShowSettings] = useState(false);
   const [showProjects, setShowProjects] = useState(false);
+  const [showApi, setShowApi] = useState(false);
   const [projects, setProjects] = useState<Array<ProjectState & { host: string }>>([]);
   const [testResult, setTestResult] = useState<OnePlusRuleResult | null>(null);
   const [detailTestResult, setDetailTestResult] = useState<DetailRuleResult | null>(null);
@@ -580,6 +582,11 @@ function Popup() {
         </div>
         <button
           className="s2s-btn-mini"
+          onClick={() => setShowApi(true)}
+          title="API 抓包"
+        >🕸</button>
+        <button
+          className="s2s-btn-mini"
           onClick={() => {
             loadProjects();
             setShowProjects(true);
@@ -590,6 +597,7 @@ function Popup() {
       </header>
 
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
+      {showApi && <ApiPanel onClose={() => setShowApi(false)} />}
       {showProjects && (
         <ProjectsPanel
           projects={projects}

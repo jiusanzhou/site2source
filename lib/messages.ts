@@ -26,6 +26,11 @@ export type Message =
   // 抓取的媒体
   | { type: "GET_CAPTURED_MEDIA" }
   | { type: "CLEAR_CAPTURED_MEDIA" }
+  // 抓取的 XHR (API 型爬虫用)
+  | { type: "CAPTURE_XHR"; xhr: CapturedXHR }
+  | { type: "GET_CAPTURED_XHR" }
+  | { type: "CLEAR_CAPTURED_XHR" }
+  | { type: "REPLAY_XHR"; url: string; method: string; headers?: Record<string, string>; body?: string }
   // 状态持久化
   | { type: "SAVE_STATE"; state: Partial<ProjectState> }
   | { type: "GET_STATE" }
@@ -91,6 +96,25 @@ export interface CapturedMedia {
   timestamp: number;
   referer?: string;
   tabURL?: string;
+}
+
+/**
+ * 网页 XHR/fetch 抓包结果
+ * 由 content script hook page 侧的 fetch/XHR 得到
+ */
+export interface CapturedXHR {
+  url: string;
+  method: string;
+  reqHeaders?: Record<string, string>;
+  reqBody?: string;
+  respStatus?: number;
+  respContentType?: string;
+  respBody?: string;       // 只保存前 50KB
+  respTruncated?: boolean;
+  timestamp: number;
+  pageURL?: string;
+  /** 用户可以给这条 XHR 打的标签 (home/category/search/detail/play) */
+  role?: "home" | "category" | "search" | "detail" | "play";
 }
 
 /** 详情页学习的成果 */

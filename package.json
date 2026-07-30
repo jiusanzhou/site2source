@@ -28,6 +28,7 @@
       "activeTab",
       "storage",
       "webRequest",
+      "webNavigation",
       "scripting",
       "tabs"
     ],
