@@ -43,6 +43,46 @@ code {
   flex-direction: column;
 }
 
+/* Side panel 模式: 撑满宽度自适应 */
+.s2s-sidepanel-root .s2s-root,
+.s2s-sidepanel-root .s2s-popup {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+}
+.s2s-sidepanel-root {
+  width: 100%;
+  min-height: 100vh;
+}
+.s2s-sidepanel-root .s2s-modal-backdrop {
+  position: fixed;
+  inset: 0;
+}
+.s2s-sidepanel-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--s2s-panel);
+  border-bottom: 1px solid var(--s2s-border);
+  font-size: 11px;
+  color: var(--s2s-muted);
+}
+.s2s-sidepanel-close {
+  padding: 3px 8px;
+  font-size: 10px;
+  background: var(--s2s-panel);
+  border: 1px solid var(--s2s-border);
+  border-radius: 4px;
+  color: var(--s2s-fg);
+  cursor: pointer;
+  font-family: inherit;
+}
+.s2s-sidepanel-close:hover {
+  background: var(--s2s-panel-2);
+  border-color: var(--s2s-border-strong);
+}
+
 /* ==================== 极简 popup 信息卡 ==================== */
 .s2s-info-card {
   background: var(--s2s-panel);

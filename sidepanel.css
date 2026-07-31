@@ -1,52 +1,5 @@
 /**
- * Side Panel 样式 —— @import popup 的样式再叠加 sidepanel 专属覆盖.
- * Plasmo 会自动把同名 sidepanel.css 打到 sidepanel.html 里.
+ * Side Panel 样式 —— 所有布局规则合到 popup.css 里.
+ * 保留此文件仅为兼容 Plasmo 打包约定, 目前无实际样式.
+ * (Plasmo 只在同名 css 存在时才 link, 缺失会 fallback 到 popup.css @import)
  */
-@import "./popup.css";
-
-.s2s-sidepanel-root {
-  width: 100%;
-  min-height: 100vh;
-}
-
-.s2s-sidepanel-root .s2s-popup,
-.s2s-sidepanel-root .s2s-root {
-  width: 100% !important;
-  min-width: 320px;
-  max-width: none;
-}
-
-.s2s-sidepanel-root .s2s-modal-backdrop {
-  position: fixed;
-  inset: 0;
-}
-
-.s2s-sidepanel-root .s2s-modal {
-  max-width: 90vw !important;
-  max-height: 80vh !important;
-}
-
-.s2s-sidepanel-hint {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 12px;
-  background: linear-gradient(90deg, rgba(225,29,72,0.10), rgba(225,29,72,0.03));
-  border-bottom: 1px solid rgba(225,29,72,0.20);
-  font-size: 11px;
-  color: var(--s2s-primary);
-}
-.s2s-sidepanel-close {
-  padding: 2px 8px;
-  font-size: 10px;
-  background: #fff;
-  border: 1px solid var(--s2s-border);
-  border-radius: 3px;
-  color: var(--s2s-fg);
-  cursor: pointer;
-}
-.s2s-sidepanel-close:hover {
-  background: rgba(220,38,38,0.08);
-  border-color: rgba(220,38,38,0.4);
-  color: var(--s2s-danger);
-}
