@@ -139,6 +139,99 @@ code {
   white-space: nowrap;
 }
 
+/* ==================== 生成结果预览 ==================== */
+.s2s-preview-meta {
+  background: var(--s2s-panel-2);
+  border: 1px solid var(--s2s-border);
+  border-radius: var(--s2s-radius);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+  font-size: 12px;
+}
+.s2s-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.s2s-meta-label {
+  color: var(--s2s-muted);
+  flex-shrink: 0;
+  width: 80px;
+}
+.s2s-meta-value {
+  color: var(--s2s-fg);
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  background: var(--s2s-panel);
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--s2s-border);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.s2s-meta-badge {
+  font-size: 10px;
+  color: var(--s2s-muted);
+  background: var(--s2s-panel);
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--s2s-border);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.s2s-preview-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1px solid var(--s2s-border);
+  margin-top: 8px;
+}
+.s2s-preview-tab {
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--s2s-muted);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  margin-bottom: -1px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.s2s-preview-tab:hover {
+  color: var(--s2s-fg);
+}
+.s2s-preview-tab.active {
+  color: var(--s2s-fg);
+  border-bottom-color: var(--s2s-primary);
+  font-weight: 500;
+}
+.s2s-preview-body {
+  border: 1px solid var(--s2s-border);
+  border-top: none;
+  border-radius: 0 0 var(--s2s-radius) var(--s2s-radius);
+  background: #fafafa;
+  max-height: 400px;
+  overflow: auto;
+}
+.s2s-preview-body .s2s-code {
+  margin: 0;
+  padding: 10px 12px;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--s2s-fg);
+  white-space: pre;
+  background: transparent;
+}
+
 /* ==================== Header ==================== */
 .s2s-header {
   display: flex;

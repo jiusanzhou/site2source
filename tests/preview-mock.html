@@ -1,0 +1,124 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Preview Step Standalone</title>
+<link rel="stylesheet" href="../build/chrome-mv3-prod/popup.b52b86f3.css">
+<style>body{margin:0;background:#e5e5e5;padding:20px;}</style>
+</head>
+<body>
+<div class="s2s-sidepanel-root" style="width:520px;background:#fff;border:1px solid #ddd;">
+  <div class="s2s-sidepanel-hint">
+    <span>📌 www.aiyifan.tv</span>
+    <button class="s2s-sidepanel-close">换弹窗模式</button>
+  </div>
+  <div class="s2s-root">
+    <div class="s2s-header">
+      <span class="s2s-logo">🧭</span>
+      <div style="flex:1;min-width:0">
+        <div class="s2s-title">Site2Source</div>
+        <div class="s2s-sub">www.aiyifan.tv</div>
+      </div>
+    </div>
+
+    <div class="s2s-progress" style="padding:10px 16px;display:flex;gap:6px">
+      <div class="s2s-progress-step done">1</div>
+      <div class="s2s-progress-step done">2</div>
+      <div class="s2s-progress-step done">3</div>
+      <div class="s2s-progress-step done">4</div>
+      <div class="s2s-progress-step active">5</div>
+      <div class="s2s-progress-step">✓</div>
+    </div>
+
+    <section class="s2s-section" style="padding:12px 16px">
+      <div class="s2s-section-title">
+        🔍 生成结果预览
+        <span class="s2s-hint">过一遍再决定是下载还是发布</span>
+      </div>
+
+      <div class="s2s-preview-meta">
+        <div class="s2s-meta-row">
+          <span class="s2s-meta-label">Spider</span>
+          <code class="s2s-meta-value">spider_www_aiyifan_tv.js</code>
+          <span class="s2s-meta-badge">2.4 KB</span>
+        </div>
+        <div class="s2s-meta-row">
+          <span class="s2s-meta-label">TVBox 配置</span>
+          <code class="s2s-meta-value">tvbox.json</code>
+          <span class="s2s-meta-badge">0.3 KB</span>
+        </div>
+        <div class="s2s-meta-row">
+          <span class="s2s-meta-label">站点</span>
+          <code class="s2s-meta-value">www.aiyifan.tv</code>
+        </div>
+        <div class="s2s-meta-row">
+          <span class="s2s-meta-label">一级选择器</span>
+          <code class="s2s-meta-value">$.data.info[*].guessYouLike</code>
+        </div>
+        <div class="s2s-meta-row">
+          <span class="s2s-meta-label">播放选择器</span>
+          <code class="s2s-meta-value">$.data.info[0].flvPathList[*]</code>
+        </div>
+      </div>
+
+      <div class="s2s-preview-tabs">
+        <button class="s2s-preview-tab active">spider.js</button>
+        <button class="s2s-preview-tab">tvbox.json</button>
+        <button class="s2s-preview-tab">抓包摘要</button>
+        <button class="s2s-btn-mini" style="margin-left:auto">复制</button>
+      </div>
+
+      <div class="s2s-preview-body">
+        <pre class="s2s-code">// ==UserScript==
+// @name         aiyifan_com Spider
+// @description  自动生成的 TVBox 影视爬虫
+// @generated_at 2026-07-31T20:00:00Z
+// ==/UserScript==
+
+var rule = {
+  title: "爱一凡",
+  host: "https://www.aiyifan.tv",
+  homeUrl: "/api/home/getIndexVideo?cinema=1&size=16",
+  homeTid: "1",
+  一级: async function() {
+    let d = await request(input);
+    let list = d.data.info[0].guessYouLike;
+    let videos = [];
+    for (const item of list) {
+      videos.push({
+        vod_id: item.id,
+        vod_name: item.title,
+        vod_pic: item.cover,
+        vod_remarks: item.remarks
+      });
+    }
+    return { list: videos };
+  },
+  二级: async function() {
+    let d = await request(this.host + '/api/video/play?id=' + input);
+    let vod = d.data.info[0];
+    let plays = vod.flvPathList.map(x =&gt; x.title + '$' + x.result).join('#');
+    return {
+      vod_id: input,
+      vod_name: vod.title,
+      vod_content: vod.description,
+      vod_play_from: '默认',
+      vod_play_url: plays
+    };
+  },
+  播放: async function() {
+    return { parse: 0, url: input, header: {} };
+  }
+};</pre>
+      </div>
+
+      <div class="s2s-actions" style="margin-top:12px">
+        <button class="s2s-btn s2s-btn-ghost">← 回改</button>
+        <button class="s2s-btn s2s-btn-ghost" style="flex:1">💾 下载到本地</button>
+        <button class="s2s-btn s2s-btn-primary" style="flex:1">☁️ 传 Gist</button>
+      </div>
+    </section>
+  </div>
+</div>
+</body>
+</html>

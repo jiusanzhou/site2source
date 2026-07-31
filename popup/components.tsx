@@ -18,7 +18,7 @@ import {
   type AIProvider,
 } from "~lib/ai-helper";
 
-export type Step = "start" | "listPick" | "listReview" | "detail" | "media" | "done";
+export type Step = "start" | "listPick" | "listReview" | "detail" | "media" | "preview" | "done";
 
 // ============ 顶部进度条 ============
 export function ProgressBar({
@@ -37,6 +37,7 @@ export function ProgressBar({
       done: !!(state.detail?.titleSelector || state.detail?.playListSelector),
     },
     { key: "media", label: "4", done: false },
+    { key: "preview", label: "5", done: current === "preview" || current === "done" },
     { key: "done", label: "✓", done: current === "done" },
   ];
   return (

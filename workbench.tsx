@@ -131,6 +131,13 @@ export function Workbench() {
     loading: boolean;
     result?: { ok: boolean; spiderURL?: string; gistURL?: string; error?: string };
   }>({ loading: false });
+  // 生成后先预览再决定下一步 (下载/传 Gist/回改)
+  const [previewArtifact, setPreviewArtifact] = useState<{
+    spider: string;
+    spiderName: string;
+    tvbox: string;
+  } | null>(null);
+  const [previewTab, setPreviewTab] = useState<"spider" | "tvbox" | "meta">("spider");
 
   const loadState = useCallback(async () => {
     const res = await sendToBackground<{ state: ProjectState }>({ type: "GET_STATE" });
@@ -308,13 +315,22 @@ export function Workbench() {
   const doGenerate = () => {
     const a = buildArtifacts();
     if (!a) return;
+    setPreviewArtifact(a);
+    setPreviewTab("spider");
+    setStep("preview");
+  };
+
+  const doDownloadArtifact = () => {
+    const a = previewArtifact;
+    if (!a) return;
     downloadText(a.spiderName, a.spider, "text/javascript");
     downloadText("tvbox.json", a.tvbox, "application/json");
     setStep("done");
   };
 
   const doUploadToGist = async () => {
-    const a = buildArtifacts();
+    // 优先用 preview 里的 (确保用户看的和上传的是同一份)
+    const a = previewArtifact || buildArtifacts();
     if (!a || !state.site) return;
     setUploadStatus({ loading: true });
     const res = await uploadToGist(
@@ -1157,11 +1173,158 @@ export function Workbench() {
           )}
           <div className="s2s-actions" style={{ marginTop: 10 }}>
             <button className="s2s-btn s2s-btn-ghost" onClick={() => setStep("detail")}>← 上一步</button>
-            <button className="s2s-btn s2s-btn-primary" onClick={doGenerate}>📦 生成 + 下载</button>
+            <button className="s2s-btn s2s-btn-primary" onClick={doGenerate}>🔍 生成并预览</button>
           </div>
           <div className="s2s-actions" style={{ marginTop: 6 }}>
             <button className="s2s-btn s2s-btn-ghost" onClick={doUploadToGist} disabled={uploadStatus.loading}>
-              {uploadStatus.loading ? "上传中..." : "☁️ 直接传到 GitHub Gist"}
+              {uploadStatus.loading ? "上传中..." : "☁️ 跳过预览直传 Gist"}
+            </button>
+          </div>
+          {uploadStatus.result && !uploadStatus.result.ok && (
+            <div className="s2s-notice" style={{ marginTop: 8 }}>
+              ❌ {uploadStatus.result.error}
+            </div>
+          )}
+        </section>
+      )}
+
+      {step === "preview" && previewArtifact && (
+        <section className="s2s-section">
+          <div className="s2s-section-title">
+            🔍 生成结果预览
+            <span className="s2s-hint">
+              过一遍再决定是下载还是发布
+            </span>
+          </div>
+
+          {/* Meta 概览 */}
+          <div className="s2s-preview-meta">
+            <div className="s2s-meta-row">
+              <span className="s2s-meta-label">Spider</span>
+              <code className="s2s-meta-value">{previewArtifact.spiderName}</code>
+              <span className="s2s-meta-badge">
+                {(previewArtifact.spider.length / 1024).toFixed(1)} KB
+              </span>
+            </div>
+            <div className="s2s-meta-row">
+              <span className="s2s-meta-label">TVBox 配置</span>
+              <code className="s2s-meta-value">tvbox.json</code>
+              <span className="s2s-meta-badge">
+                {(previewArtifact.tvbox.length / 1024).toFixed(1)} KB
+              </span>
+            </div>
+            <div className="s2s-meta-row">
+              <span className="s2s-meta-label">站点</span>
+              <code className="s2s-meta-value">{state.site?.host}</code>
+            </div>
+            {state.listSelector && (
+              <div className="s2s-meta-row">
+                <span className="s2s-meta-label">一级选择器</span>
+                <code className="s2s-meta-value" title={state.listSelector}>
+                  {state.listSelector.length > 60
+                    ? state.listSelector.slice(0, 57) + "..."
+                    : state.listSelector}
+                </code>
+              </div>
+            )}
+            {state.detail?.playListSelector && (
+              <div className="s2s-meta-row">
+                <span className="s2s-meta-label">播放选择器</span>
+                <code className="s2s-meta-value" title={state.detail.playListSelector}>
+                  {state.detail.playListSelector.length > 60
+                    ? state.detail.playListSelector.slice(0, 57) + "..."
+                    : state.detail.playListSelector}
+                </code>
+              </div>
+            )}
+          </div>
+
+          {/* Tab 切换 */}
+          <div className="s2s-preview-tabs">
+            <button
+              className={`s2s-preview-tab ${previewTab === "spider" ? "active" : ""}`}
+              onClick={() => setPreviewTab("spider")}
+            >
+              spider.js
+            </button>
+            <button
+              className={`s2s-preview-tab ${previewTab === "tvbox" ? "active" : ""}`}
+              onClick={() => setPreviewTab("tvbox")}
+            >
+              tvbox.json
+            </button>
+            <button
+              className={`s2s-preview-tab ${previewTab === "meta" ? "active" : ""}`}
+              onClick={() => setPreviewTab("meta")}
+            >
+              抓包摘要
+            </button>
+            <button
+              className="s2s-btn-mini"
+              style={{ marginLeft: "auto" }}
+              onClick={() => {
+                const t =
+                  previewTab === "spider"
+                    ? previewArtifact.spider
+                    : previewTab === "tvbox"
+                    ? previewArtifact.tvbox
+                    : JSON.stringify({ site: state.site, list: state.listSelector, detail: state.detail, media }, null, 2);
+                copyToClipboard(t);
+                setNotice("已复制到剪贴板");
+                setTimeout(() => setNotice(""), 1500);
+              }}
+            >
+              复制
+            </button>
+          </div>
+
+          {/* 内容 */}
+          <div className="s2s-preview-body">
+            {previewTab === "spider" && (
+              <pre className="s2s-code">{previewArtifact.spider}</pre>
+            )}
+            {previewTab === "tvbox" && (
+              <pre className="s2s-code">{previewArtifact.tvbox}</pre>
+            )}
+            {previewTab === "meta" && (
+              <pre className="s2s-code">
+{JSON.stringify(
+  {
+    site: state.site,
+    listSelector: state.listSelector,
+    detail: state.detail,
+    home: state.home,
+    mediaCount: media.length,
+    mediaEncryption: media.reduce<Record<string, number>>((acc, m) => {
+      const k = m.probe?.encryption ?? "unknown";
+      acc[k] = (acc[k] || 0) + 1;
+      return acc;
+    }, {}),
+  },
+  null,
+  2
+)}
+              </pre>
+            )}
+          </div>
+
+          {/* 操作 */}
+          <div className="s2s-actions" style={{ marginTop: 12 }}>
+            <button className="s2s-btn s2s-btn-ghost" onClick={() => setStep("media")}>← 回改</button>
+            <button
+              className="s2s-btn s2s-btn-ghost"
+              style={{ flex: 1 }}
+              onClick={doDownloadArtifact}
+            >
+              💾 下载到本地
+            </button>
+            <button
+              className="s2s-btn s2s-btn-primary"
+              style={{ flex: 1 }}
+              onClick={doUploadToGist}
+              disabled={uploadStatus.loading}
+            >
+              {uploadStatus.loading ? "上传中..." : "☁️ 传 Gist"}
             </button>
           </div>
           {uploadStatus.result && !uploadStatus.result.ok && (
