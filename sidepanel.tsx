@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState } from "react";
-import Popup from "./popup";
+import { Workbench } from "./workbench";
 
 export default function SidePanel() {
   const [currentHost, setCurrentHost] = useState<string>("");
@@ -38,7 +38,7 @@ export default function SidePanel() {
 
   const switchBackToPopup = async () => {
     try {
-      // 切回 popup 模式
+      // 切回轻量 popup 模式 (点扩展图标弹小卡片, 不再打开侧栏)
       await chrome.runtime.sendMessage({
         type: "SET_UI_PREFERENCE",
         preferSidepanel: false,
@@ -46,7 +46,7 @@ export default function SidePanel() {
       // 关闭 sidepanel
       window.close();
     } catch (e) {
-      alert("切回失败: " + (e as any).message);
+      alert("切换失败: " + (e as any).message);
     }
   };
 
@@ -59,12 +59,12 @@ export default function SidePanel() {
         <button
           className="s2s-sidepanel-close"
           onClick={switchBackToPopup}
-          title="切回轻量 popup 模式"
+          title="改成点扩展图标只弹小卡片"
         >
-          切回 popup ✕
+          换弹窗模式
         </button>
       </div>
-      <Popup key={currentHost /* host 变时强制 remount, 刷新 state */} />
+      <Workbench key={currentHost /* host 变时强制 remount, 刷新 state */} />
     </div>
   );
 }

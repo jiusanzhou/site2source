@@ -532,15 +532,15 @@ const PREFER_SIDEPANEL_KEY = "s2s:preferSidepanel";
 
 /**
  * 根据用户偏好决定点扩展图标弹啥.
- * 首次: popup (轻量, 用户不知道 sidepanel 存在时的合理默认)
- * 一旦切过 sidepanel: 记住这个偏好, 下次直接开 sidepanel
+ * 默认: sidepanel (v0.20+: 主流程都在侧栏, popup 只做信息展示 + 快捷入口)
+ * 用户可以在 popup 里显式切回 popup 模式.
  */
 async function refreshActionBehavior() {
   const r = await chrome.storage.local.get([PREFER_SIDEPANEL_KEY]);
-  const prefer = !!r[PREFER_SIDEPANEL_KEY];
+  // 默认 true: 未设置过 = 侧栏优先
+  const prefer = r[PREFER_SIDEPANEL_KEY] === undefined ? true : !!r[PREFER_SIDEPANEL_KEY];
   if (prefer) {
-    // openPanelOnActionClick=true: 点扩展图标直接开 sidepanel
-    // 需要同时清掉 popup, 否则 chrome 优先弹 popup
+    // 点扩展图标直接开 sidepanel
     chrome.sidePanel.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => {});
     chrome.action.setPopup?.({ popup: "" }).catch(() => {});
   } else {

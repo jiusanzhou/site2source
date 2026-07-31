@@ -10,15 +10,16 @@ export async function probeM3U8(url: string, referer?: string): Promise<MediaPro
   try {
     const headers: Record<string, string> = {
       "Accept": "*/*",
-      "User-Agent": navigator.userAgent,
     };
+    // SW 里 navigator.userAgent 可能为空, 保险起见 optional chain
+    const ua = typeof navigator !== "undefined" ? navigator.userAgent : undefined;
+    if (ua) headers["User-Agent"] = ua;
     if (referer) headers["Referer"] = referer;
 
     const resp = await fetch(url, {
       method: "GET",
       headers,
       credentials: "omit",
-      mode: "cors",
       cache: "no-store",
     });
 
