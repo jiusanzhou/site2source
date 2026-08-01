@@ -1,27 +1,34 @@
 // site2source-ext — aiyifan API 型 T3 spider
-// Generated: 2026-08-01T21:47:49.592Z
+// Generated: 2026-08-01T22:41:14.094Z
 //
-// 全部走带签名的 API，不依赖 HTML（本站是纯 CSR，HTML 是空壳）
-// 签名: vv = md5(pub + '&' + query.toLowerCase() + '&' + privateKey[pub % 4])
+// 完整签名双模:
+//   1. timestamp: pub=Date.now(), pk=PKS_TS[pub%8], vv=md5(pub+'&'+q+'&'+pk)
+//   2. cert:      pub=pConfig.publicKey, pk=pConfig.privateKey[0], 同公式
+// video/play 用集 key 时必须 cert; 其他端点两者都行, 但 cert 更稳。
 //
-// 一级: v3/home/getAllVideo  (聚合接口，分类=返回字段，size 可到 1000)
-// 搜索: v3/list/briefsearch
-// 播放: v3/video/play       (直出 mp4/HLS)
-// 详情: 拿不到剧集列表 (需 cert 模式签名)，只播正片
+// 剧集列表: v3/video/languagesplaylist?cinema=1&vid={key}&lsk=1&taxis=0&cid={cid}
+// 每集 play: v3/video/play?cinema=1&id={集key}&a=0&lang=none&usersign=1&region=SG&device=1&isMasterSupport=1
 
 import * as cheerio from 'assets://js/lib/cat.js';
 
 var API = 'https://m10.aiyifan.tv';
 var RANK = 'https://rankv21.aiyifan.tv';
 var SITE = 'https://www.aiyifan.tv';
-var PKS = ['version001', 'versi0n001', 'versio_001', 'version0o1'];
+
+// timestamp 模式的 8 个混淆密钥（形近字符攻击式命名）
+var PKS_TS = [
+  'version001', 'vers1on001', 'vers1on00i', 'bersion001',
+  'vcrsion001', 'versi0n001', 'versio_001', 'version0o1',
+];
+
 var HDR = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
   'Referer': SITE + '/',
   'Origin': SITE,
+  'Accept': 'application/json, text/plain, */*',
+  'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
 };
 
-// 栏目字段 → 分类名
 var CATS = [
   { id: 'filmList', name: '电影' },
   { id: 'tvList', name: '剧集' },
@@ -32,41 +39,87 @@ var CATS = [
   { id: 'sportList', name: '体育' },
 ];
 
-// 一次拉回来的聚合数据缓存（避免每个分类都重新请求）
+// pConfig 缓存: 首次 bootstrap 后长期有效
+var PCONFIG = null;
+// 首页聚合缓存（10 分钟）
 var CACHE = null;
 var CACHE_AT = 0;
+// detail 缓存（key -> {cid, title, ...}）—— languagesplaylist 要 cid
+var DETAIL_CACHE = {};
 
-function signedUrl(base, path, query) {
+// 用 timestamp 模式签一个 URL（不需要 pConfig, 用于 bootstrap）
+function signedUrlTS(base, path, query) {
   var pub = '' + Date.now();
-  var pk = PKS[Number(pub) % PKS.length];
+  var pk = PKS_TS[Number(pub) % PKS_TS.length];
   var vv = md5X(pub + '&' + query.toLowerCase() + '&' + pk);
   return base + '/' + path + '?' + query + '&vv=' + vv + '&pub=' + pub;
 }
 
-function apiGet(base, path, query) {
-  var url = signedUrl(base, path, query);
-  var res = req(url, { headers: HDR });
-  var body = res.content || res;
+// 用 cert 模式签一个 URL（pConfig 已就绪）
+function signedUrlCert(base, path, query) {
+  var pub = PCONFIG.publicKey;
+  var pk = PCONFIG.privateKey[0];
+  var vv = md5X(pub + '&' + query.toLowerCase() + '&' + pk);
+  return base + '/' + path + '?' + query + '&vv=' + vv + '&pub=' + pub;
+}
+
+// bootstrap: 拿 pConfig（幂等）
+function ensureBootstrap() {
+  if (PCONFIG) return true;
+  var url = signedUrlTS(API, 'v3/home/config', 'cinema=1');
   try {
+    var res = req(url, { headers: HDR });
+    var body = res.content || res;
     var j = typeof body === 'string' ? JSON.parse(body) : body;
-    if (j && j.data && j.data.code === 0) return j.data.info;
-    console.log('[s2s] api ' + path + ' code=' + (j && j.data && j.data.code) + ' msg=' + (j && j.data && j.data.msg));
+    var info = j && j.data && j.data.info;
+    var pc = info && info[0] && info[0].pConfig;
+    if (pc && pc.publicKey && pc.privateKey && pc.privateKey.length) {
+      // pConfig.privateKey 有时是字符串, 有时是数组, 统一成数组
+      var pkArr = typeof pc.privateKey === 'string' ? [pc.privateKey] : pc.privateKey;
+      PCONFIG = { publicKey: pc.publicKey, privateKey: pkArr };
+      console.log('[s2s] bootstrap 完成，pConfig 已获取');
+      return true;
+    }
+    console.log('[s2s] bootstrap 失败: pConfig 缺失，code=' + (j && j.data && j.data.code) + ' msg=' + (j && j.data && j.data.msg));
   } catch (e) {
-    console.log('[s2s] api ' + path + ' parse 失败: ' + e.message);
+    console.log('[s2s] bootstrap 异常: ' + e.message);
+  }
+  return false;
+}
+
+// 通用 API 调用: mode='auto' 优先 cert, 失败退 timestamp
+function apiGet(base, path, query, mode) {
+  var useCert = (mode !== 'ts') && ensureBootstrap();
+  var url = useCert ? signedUrlCert(base, path, query) : signedUrlTS(base, path, query);
+  var res, body, j;
+  try {
+    res = req(url, { headers: HDR });
+    body = res.content || res;
+    j = typeof body === 'string' ? JSON.parse(body) : body;
+    if (j && j.data && j.data.code === 0) return j.data.info;
+    // cert 失败 → 试 timestamp（很少见, 保险起见）
+    if (useCert && j && j.data && j.data.code !== 0) {
+      console.log('[s2s] cert 失败, 试 timestamp: ' + path + ' msg=' + j.data.msg);
+      var url2 = signedUrlTS(base, path, query);
+      var res2 = req(url2, { headers: HDR });
+      var body2 = res2.content || res2;
+      var j2 = typeof body2 === 'string' ? JSON.parse(body2) : body2;
+      if (j2 && j2.data && j2.data.code === 0) return j2.data.info;
+      console.log('[s2s] api ' + path + ' 两种模式都失败: cert msg=' + j.data.msg + ' ts msg=' + (j2 && j2.data && j2.data.msg));
+    } else {
+      console.log('[s2s] api ' + path + ' code=' + (j && j.data && j.data.code) + ' msg=' + (j && j.data && j.data.msg));
+    }
+  } catch (e) {
+    console.log('[s2s] api ' + path + ' 异常: ' + e.message);
   }
   return null;
 }
 
-// API item → TVBox vod
-// 注意：两个接口字段名不一样，必须都兼容：
-//   getAllVideo : key    / image   / rating(评分字符串 "8.3")
-//   briefsearch : contxt / imgPath / score(评分) + rating(热度数字!)
-// 早期版本直接用 it.key/it.image/it.rating → 搜索结果 vod_id=undefined
-// 而且把热度数字 769 当成了评分显示。
 function toVod(it) {
+  // getAllVideo 用 key/image/rating(评分字符串)
+  // briefsearch 用 contxt/imgPath/score+rating(热度数字)
   var id = it.key || it.contxt || '';
   var pic = it.image || it.imgPath || '';
-  // score 优先（搜索接口）；getAllVideo 的 rating 才是评分字符串
   var score = it.score || (typeof it.rating === 'string' ? it.rating : '');
   var remarks = it.lastName ? ('更新至' + it.lastName) : (it.cid || it.atypeName || '');
   if (score) remarks = remarks ? (remarks + ' · ' + score) : score;
@@ -81,7 +134,10 @@ function toVod(it) {
   };
 }
 
-function init(cfg) { console.log('[s2s] aiyifan api spider init'); }
+function init(cfg) {
+  console.log('[s2s] aiyifan api spider init (cert+timestamp 双模)');
+  ensureBootstrap();
+}
 
 function home(filter) {
   var classes = CATS.map(function (c) { return { type_id: c.id, type_name: c.name }; });
@@ -89,16 +145,15 @@ function home(filter) {
 }
 
 function homeVod() {
-  // 首页推荐用电影栏目前 20 条
   var agg = loadAll();
   var list = (agg && agg.filmList ? agg.filmList : []).slice(0, 20).map(toVod);
   return JSON.stringify({ list: list });
 }
 
-// getAllVideo 是聚合接口，一次拿全部栏目。10 分钟缓存。
 function loadAll() {
   var now = Date.now();
   if (CACHE && now - CACHE_AT < 600000) return CACHE;
+  // size=100 = 约 460KB，size=1000 = 4.6MB 会挂 QuickJS
   var info = apiGet(API, 'v3/home/getAllVideo', 'cinema=1&page=1&size=100&region=SG');
   var agg = info && info[0] ? info[0] : null;
   if (agg) { CACHE = agg; CACHE_AT = now; }
@@ -110,7 +165,6 @@ function category(tid, pg, filter, extend) {
   var PAGE = 30;
   var agg = loadAll();
   var all = (agg && agg[tid]) ? agg[tid] : [];
-  // API 的 page 参数无效（实测 page=1/2/3 返回一样），改本地切片
   var start = (pg - 1) * PAGE;
   var list = all.slice(start, start + PAGE).map(toVod);
   var pagecount = Math.max(1, Math.ceil(all.length / PAGE));
@@ -120,31 +174,60 @@ function category(tid, pg, filter, extend) {
 }
 
 function detail(id) {
-  // v3/video/detail 需要 cert 模式签名（pConfig），拿不到 → 用聚合缓存里的元数据补
+  // 1. 先拉 detail 拿元数据 + cid（languagesplaylist 需要 cid）
   var meta = null;
-  var agg = loadAll();
-  if (agg) {
-    var fields = CATS.map(function (c) { return c.id; });
-    for (var i = 0; i < fields.length && !meta; i++) {
-      var arr = agg[fields[i]] || [];
-      for (var k = 0; k < arr.length; k++) {
-        // 搜索来的 id 是 contxt，聚合里是 key，两边都比
-        if (arr[k].key === id || arr[k].contxt === id) { meta = arr[k]; break; }
+  var detailQ = 'cinema=1&device=1&player=CkPlayer&tech=HLS&lang=cns&v=1&id=' + id + '&region=SG';
+  var dInfo = apiGet(API, 'v3/video/detail', detailQ);
+  if (dInfo && dInfo[0]) {
+    meta = dInfo[0];
+    // cidMapper 是"悬疑,历险"这种; publishNavKey 才是原始 cid 路径 (如 "0,1,4,137")
+    var cid = meta.publishNavKey || '0,1,4';
+    DETAIL_CACHE[id] = { cid: cid, meta: meta };
+  } else {
+    // detail 失败: 用聚合缓存兜底
+    var agg = loadAll();
+    if (agg) {
+      for (var i = 0; i < CATS.length && !meta; i++) {
+        var arr = agg[CATS[i].id] || [];
+        for (var k = 0; k < arr.length; k++) {
+          if (arr[k].key === id || arr[k].contxt === id) { meta = arr[k]; break; }
+        }
       }
     }
   }
+
+  // 2. 拉剧集列表
+  var epList = [];
+  var cidForEp = (DETAIL_CACHE[id] && DETAIL_CACHE[id].cid) || (meta && meta.publishNavKey) || '0,1,4';
+  var lplQ = 'cinema=1&vid=' + id + '&lsk=1&taxis=0&cid=' + cidForEp;
+  var lplInfo = apiGet(API, 'v3/video/languagesplaylist', lplQ);
+  if (lplInfo && lplInfo[0] && lplInfo[0].playList) {
+    epList = lplInfo[0].playList;
+  }
+
+  // 3. 组装 vod_play_url: "名称$集key#名称$集key#..."
+  var vodPlayUrl;
+  if (epList.length) {
+    var parts = epList.map(function (e) { return e.name + '$' + e.key; });
+    vodPlayUrl = parts.join('#');
+  } else {
+    // 单集/电影: 用专辑 key 播
+    vodPlayUrl = '正片$' + id;
+  }
+
   var vod = {
     vod_id: id,
     vod_name: meta ? meta.title : id,
     vod_pic: meta ? (meta.image || meta.imgPath || '') : '',
-    vod_year: meta && meta.year ? ('' + meta.year) : '',
+    vod_year: meta && (meta.year || meta.post_Year) ? ('' + (meta.year || meta.post_Year)) : '',
     vod_area: meta ? (meta.regional || '') : '',
-    vod_actor: meta ? (meta.starring || '') : '',
-    vod_director: meta ? (meta.directed || '') : '',
-    vod_content: meta ? (meta.shortDes || '') : '',
+    vod_actor: meta ? (meta.starring || (meta.stars && meta.stars.join(',')) || '') : '',
+    vod_director: meta ? (meta.directed || (meta.directors && meta.directors.join(',')) || '') : '',
+    vod_content: meta ? (meta.shortDes || meta.contxt || '') : '',
+    vod_remarks: meta && meta.serialCount ? ('共' + meta.serialCount + '集 更新至' + meta.lastName) : '',
+    type_name: meta ? (meta.channel || meta.videoType || '') : '',
     vod_play_from: 'aiyifan',
-    // 剧集列表要 cert 签名，拿不到 → 只给正片
-    vod_play_url: '正片$' + id,
+    vod_play_url: vodPlayUrl,
   };
   return JSON.stringify({ list: [vod] });
 }
@@ -162,33 +245,45 @@ function search(wd, quick, pg) {
 }
 
 function play(flag, id, flags) {
+  // 切集时 a=0, 首播 a=1 —— 但 a=0 更保险（都能通）
   var q = 'cinema=1&id=' + id +
-    '&a=1&lang=none&usersign=1&region=SG&device=1&isMasterSupport=1';
+    '&a=0&lang=none&usersign=1&region=SG&device=1&isMasterSupport=1';
   var info = apiGet(API, 'v3/video/play', q);
   var url = '';
+  var isHls = false;
   if (info && info[0]) {
     var d = info[0];
-    // 优先 HLS（m3u8），退回 mp4
-    var pick = function (arr) {
-      if (!arr || !arr.length) return '';
+    // flvPathList[0] 通常是广告 mp4, [1] 是真 m3u8。
+    // 优先级: clarity(enabled=true) → 任 List 里 isHls=true → 任意非空
+    var pickReal = function (arr) {
+      if (!arr || !arr.length) return null;
       for (var i = 0; i < arr.length; i++) {
-        if (arr[i] && arr[i].result) return arr[i].result;
+        if (arr[i] && arr[i].result && arr[i].isHls === true) return arr[i];
       }
-      return '';
+      for (var j = 0; j < arr.length; j++) {
+        if (arr[j] && arr[j].result) return arr[j];
+      }
+      return null;
     };
-    url = pick(d.hlsPathList) || pick(d.flvPathList) || pick(d.mp4PathList) || '';
+    var picked = null;
+    if (d.clarity && d.clarity.length) {
+      for (var k = 0; k < d.clarity.length; k++) {
+        var c = d.clarity[k];
+        if (c && c.isEnabled && c.path && c.path.result) { picked = c.path; break; }
+      }
+    }
+    if (!picked) picked = pickReal(d.hlsPathList) || pickReal(d.flvPathList) || pickReal(d.mp4PathList);
+    if (picked) { url = picked.result; isHls = !!picked.isHls; }
   }
   if (url) {
-    console.log('[s2s] play 命中: ' + url);
+    console.log('[s2s] play 命中(' + (isHls ? 'HLS' : 'MP4') + '): ' + url.substring(0, 80));
     return JSON.stringify({
       parse: 0, url: url,
       header: { 'User-Agent': HDR['User-Agent'], 'Referer': SITE + '/' },
     });
   }
-  // API 没给地址。常见原因是 play 端点配额耗尽（"访问过量"/"用户签名错误"），
-  // 不是签名算错 —— getAllVideo/briefsearch 此时通常还是通的。
-  // 退回前端播放页，让 FongMi 嗅探真实流。
-  console.log('[s2s] play API 无地址（可能配额耗尽），退回嗅探');
+  // API 没给地址（配额耗尽/临时错误）→ 退回前端页嗅探
+  console.log('[s2s] play API 无地址, 退回嗅探');
   return JSON.stringify({
     parse: 1,
     url: SITE + '/play/' + id,
