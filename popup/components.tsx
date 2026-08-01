@@ -18,41 +18,8 @@ import {
   type AIProvider,
 } from "~lib/ai-helper";
 
-export type Step = "start" | "listPick" | "listReview" | "detail" | "media" | "preview" | "done";
-
-// ============ 顶部进度条 ============
-export function ProgressBar({
-  current,
-  state,
-}: {
-  current: Step;
-  state: ProjectState;
-}) {
-  const steps: { key: Step; label: string; done: boolean }[] = [
-    { key: "start", label: "1", done: !!state.site },
-    { key: "listReview", label: "2", done: !!state.listSelector },
-    {
-      key: "detail",
-      label: "3",
-      done: !!(state.detail?.titleSelector || state.detail?.playListSelector),
-    },
-    { key: "media", label: "4", done: false },
-    { key: "preview", label: "5", done: current === "preview" || current === "done" },
-    { key: "done", label: "✓", done: current === "done" },
-  ];
-  return (
-    <div className="s2s-progress">
-      {steps.map((s) => (
-        <div
-          key={s.key}
-          className={`s2s-progress-step ${s.done ? "done" : ""} ${current === s.key ? "active" : ""}`}
-        >
-          {s.label}
-        </div>
-      ))}
-    </div>
-  );
-}
+/** v0.22 role 卡片布局的角色名 */
+export type RoleName = "home" | "category" | "search" | "detail" | "play";
 
 // ============ 列表样本卡片 ============
 export function SampleCard({ s }: { s: SerializedSample }) {

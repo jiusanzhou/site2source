@@ -7,6 +7,7 @@
  */
 
 import type { CapturedMedia, CapturedXHR, ProjectState, Message } from "~lib/messages";
+import { guessRoleFromXHR } from "~lib/role-guess";
 import { probeM3U8 } from "~lib/m3u8-probe";
 
 const MEDIA_EXT_RE = /\.(m3u8|mp4|flv|ts)(\?|$)/i;
@@ -419,6 +420,10 @@ chrome.runtime.onMessage.addListener((msg: Message | any, _sender, sendResponse)
       if (tabId == null) return sendResponse({ ok: false });
       const xhr: CapturedXHR = msg.xhr;
       if (isLikelyAPI(xhr.url, xhr.respContentType)) {
+        if (!xhr.roleGuess) {
+          const g = guessRoleFromXHR(xhr);
+          if (g) xhr.roleGuess = g;
+        }
         await appendXHR(tabId, xhr);
         // 更新 badge (媒体 + XHR 合计)
         const media = await getMediaForTab(tabId);

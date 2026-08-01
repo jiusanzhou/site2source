@@ -137,6 +137,8 @@ export interface CapturedXHR {
   pageURL?: string;
   /** 用户可以给这条 XHR 打的标签 (home/category/search/detail/play) */
   role?: "home" | "category" | "search" | "detail" | "play";
+  /** 后台抓包时按 URL 特征自动猜的 role, 仅供 UI 显示 badge, 用户可覆盖 */
+  roleGuess?: "home" | "category" | "search" | "detail" | "play";
 }
 
 /** 详情页学习的成果 */

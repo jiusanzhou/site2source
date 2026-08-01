@@ -1125,3 +1125,352 @@ code {
   border-radius: 4px;
   margin-top: 3px;
 }
+
+/* ==================== v0.22: workbench role-card layout ==================== */
+
+.s2s-workbench {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--s2s-bg);
+}
+
+/* Sticky 抓包区 */
+.s2s-capture-summary {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--s2s-panel);
+  border-bottom: 1px solid var(--s2s-border);
+  font-size: 12px;
+}
+.s2s-cap-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.s2s-cap-item b {
+  color: var(--s2s-fg);
+}
+.s2s-cap-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--s2s-primary);
+  display: inline-block;
+}
+.s2s-cap-sep {
+  width: 1px;
+  height: 12px;
+  background: var(--s2s-border);
+  margin: 0 4px;
+}
+.s2s-cap-enc-row {
+  display: inline-flex;
+  gap: 3px;
+  margin-left: 2px;
+}
+.s2s-cap-enc {
+  color: #fff;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  line-height: 1.4;
+}
+
+/* 卡片区域 */
+.s2s-cards {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 空 hero */
+.s2s-empty-hero {
+  border: 1px dashed var(--s2s-border-strong);
+  border-radius: var(--s2s-radius);
+  padding: 20px 16px;
+  text-align: center;
+  background: var(--s2s-panel-2);
+}
+.s2s-empty-hero-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--s2s-fg);
+}
+.s2s-empty-hero .s2s-actions {
+  justify-content: center;
+  margin-top: 8px;
+}
+
+/* Role Card */
+.s2s-role-card {
+  border: 1px solid var(--s2s-border);
+  border-radius: var(--s2s-radius);
+  background: var(--s2s-panel);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.s2s-role-card:hover {
+  border-color: var(--s2s-border-strong);
+}
+.s2s-role-card.expanded {
+  border-color: var(--s2s-primary);
+  box-shadow: 0 0 0 1px var(--s2s-primary);
+}
+.s2s-role-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.s2s-role-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+.s2s-role-title-col {
+  flex: 1;
+  min-width: 0;
+}
+.s2s-role-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--s2s-fg);
+}
+.s2s-role-summary {
+  font-size: 11px;
+  color: var(--s2s-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.s2s-role-summary code {
+  font-size: 10px;
+}
+.s2s-role-caret {
+  color: var(--s2s-muted);
+  transition: transform 0.15s;
+  font-size: 12px;
+}
+.s2s-role-caret.open {
+  transform: rotate(180deg);
+}
+.s2s-role-card-body {
+  padding: 0 12px 12px;
+  border-top: 1px solid var(--s2s-border);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.s2s-role-empty-hint {
+  background: var(--s2s-panel-2);
+  border-left: 3px solid var(--s2s-warn);
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--s2s-fg);
+  border-radius: 3px;
+  line-height: 1.5;
+}
+.s2s-role-empty-hint code {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.s2s-role-actions {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.s2s-role-test {
+  font-size: 11px;
+  background: var(--s2s-panel-2);
+  padding: 6px 8px;
+  border-radius: 3px;
+}
+.s2s-samples-mini {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--s2s-muted);
+}
+.s2s-sample-mini {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* status badge */
+.s2s-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-weight: 500;
+  border: 1px solid transparent;
+}
+.s2s-status-badge.red {
+  background: #fef2f2;
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+.s2s-status-badge.yellow {
+  background: #fef9c3;
+  color: #a16207;
+  border-color: #fde68a;
+}
+.s2s-status-badge.green {
+  background: #dcfce7;
+  color: #15803d;
+  border-color: #bbf7d0;
+}
+
+/* Action Bar */
+.s2s-action-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--s2s-panel);
+  border-top: 1px solid var(--s2s-border);
+  z-index: 10;
+}
+.s2s-progress-dots {
+  display: inline-flex;
+  gap: 4px;
+}
+.s2s-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--s2s-border);
+  background: var(--s2s-panel-2);
+  color: var(--s2s-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.15s;
+}
+.s2s-dot .s2s-dot-icon {
+  font-size: 12px;
+  line-height: 1;
+  filter: grayscale(1) opacity(0.5);
+}
+.s2s-dot.partial {
+  background: #fef9c3;
+  border-color: #fde68a;
+}
+.s2s-dot.partial .s2s-dot-icon {
+  filter: none;
+}
+.s2s-dot.ok {
+  background: #dcfce7;
+  border-color: #86efac;
+}
+.s2s-dot.ok .s2s-dot-icon {
+  filter: none;
+}
+.s2s-dot:hover {
+  border-color: var(--s2s-primary);
+}
+
+/* Drawer 复用 modal 样式, 更宽 */
+.s2s-drawer {
+  max-width: 640px;
+  width: 92vw;
+  max-height: 80vh;
+}
+.s2s-preview-drawer {
+  max-width: 720px;
+  width: 92vw;
+}
+
+/* XHR 抽屉行 */
+.s2s-xhr-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0;
+}
+.s2s-xhr-method {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--s2s-panel-2);
+  color: var(--s2s-fg);
+}
+.s2s-xhr-url {
+  flex: 1;
+  min-width: 0;
+  font-family: "SF Mono", ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--s2s-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.s2s-xhr-body {
+  padding: 6px 0 8px 4px;
+  border-top: 1px dashed var(--s2s-border);
+}
+.s2s-xhr-mark-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.s2s-badge-guess {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+.s2s-badge-marked {
+  background: #dbeafe;
+  color: #1e40af;
+  border: 1px solid #93c5fd;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+.s2s-btn-xs {
+  font-size: 11px;
+  padding: 3px 8px;
+}
+.s2s-btn.active,
+.s2s-btn-ghost.active {
+  background: var(--s2s-primary);
+  color: var(--s2s-primary-fg);
+  border-color: var(--s2s-primary);
+}
+
+.s2s-probe-badge {
+  color: #fff;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-left: 4px;
+  cursor: help;
+}
