@@ -335,35 +335,96 @@ function cleanSiteName(t: string): string {
 function inferDetailInfo(): DetailSpec {
   const spec: DetailSpec = { detailURL: location.href };
 
-  // 标题：h1（含中文的最长）
-  const h1s = Array.from(document.querySelectorAll("h1"));
-  const bestH1 = h1s
-    .filter((h) => /[\u4e00-\u9fff]/.test(h.textContent || ""))
-    .sort((a, b) => (b.textContent || "").length - (a.textContent || "").length)[0];
-  if (bestH1) spec.titleSelector = generateStableSelector(bestH1);
+  // 标题：h1~h6 + 元素 class 含 "h1..h6" 的（Angular/Bootstrap 站常用 <div class="h4">）
+  // 选：含中文 + 可见 + 文档流最靠前（querySelectorAll 已按 DOM 顺序）
+  const titleCandidates: Element[] = [];
+  for (const el of Array.from(document.querySelectorAll("h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6"))) {
+    const t = (el.textContent || "").trim();
+    if (t.length < 2 || t.length > 60) continue;
+    if (!/[\u4e00-\u9fff]/.test(t)) continue;
+    // 过滤不可见 / 隐藏的元素
+    const rect = (el as HTMLElement).getBoundingClientRect?.();
+    if (!rect || rect.width === 0 || rect.height === 0) continue;
+    // 过滤常见的"其它区域标题"（相关/评论/推荐/精选/热门 等）
+    if (/(相关|评论|推荐|精选|热门|排行|最新|人气|类型)/.test(t)) continue;
+    titleCandidates.push(el);
+  }
+  // querySelectorAll 已按 DOM 顺序，直接取第一个
+  const bestTitle = titleCandidates[0];
+  if (bestTitle) spec.titleSelector = generateStableSelector(bestTitle);
 
-  // 简介：找一段较长的中文文本（≥ 30 字，包含标点）
-  const paras = Array.from(document.querySelectorAll("p, div, span"));
-  const bestDesc = paras
-    .filter((p) => {
+  // 简介：优先 class 含 summary/desc/synopsis/intro/plot；否则找长中文文本
+  const descBySemantics = Array.from(
+    document.querySelectorAll(
+      "[class*='summary'], [class*='desc'], [class*='synopsis'], [class*='intro'], [class*='plot'], [class*='brief']",
+    ),
+  ).filter((el) => {
+    const t = (el.textContent || "").trim();
+    return t.length >= 30 && t.length < 1500 && /[\u4e00-\u9fff]/.test(t);
+  });
+  let bestDesc: Element | undefined = undefined;
+  if (descBySemantics.length > 0) {
+    // 挑"直接文本 ratio 高"的（不是外层容器）
+    const scored = descBySemantics.map((el) => {
+      const total = (el.textContent || "").trim();
+      const direct = Array.from(el.childNodes)
+        .filter((n) => n.nodeType === 3)
+        .map((n) => n.textContent || "")
+        .join("").trim();
+      return { el, ratio: direct.length / Math.max(total.length, 1), len: total.length };
+    });
+    scored.sort((a, b) => b.ratio - a.ratio || b.len - a.len);
+    bestDesc = scored[0]?.el;
+  }
+  if (!bestDesc) {
+    const paras = Array.from(document.querySelectorAll("p, div, span")).filter((p) => {
       const t = (p.textContent || "").trim();
-      return t.length > 30 && t.length < 500 && /[\u4e00-\u9fff]/.test(t) && /[，。！？]/.test(t);
-    })
-    .sort((a, b) => (b.textContent || "").length - (a.textContent || "").length)[0];
+      if (t.length < 40 || t.length > 800) return false;
+      if (!/[\u4e00-\u9fff]/.test(t)) return false;
+      if (!/[，。！？；：]/.test(t)) return false;
+      // 直接文本 ratio ≥ 0.6，避免选到嵌套容器
+      const direct = Array.from(p.childNodes)
+        .filter((n) => n.nodeType === 3)
+        .map((n) => n.textContent || "")
+        .join("").trim();
+      return direct.length / t.length >= 0.6;
+    });
+    paras.sort((a, b) => (b.textContent || "").length - (a.textContent || "").length);
+    bestDesc = paras[0];
+  }
   if (bestDesc) spec.descSelector = generateStableSelector(bestDesc);
 
-  // 播放线路 tab：一组 a 元素，text 包含 "线路"/"云"/"tv"/数字
-  const tabsCandidates = findGroupOf("a", (a) => {
-    const txt = (a.textContent || "").trim();
-    return /(线路|优酷|腾讯|爱奇艺|iqiyi|qq|youku|云\d+|\d+云)/.test(txt);
-  });
-  if (tabsCandidates) spec.playTabSelector = tabsCandidates;
+  // 播放线路 tab：一组 a/div/span/li 元素，text 包含播放器/线路关键词
+  // 宁缺勿滥 —— 电影通常没有 tab，找不到就 undefined
+  // 关键词分两级：强关键词(含"线路"或平台名) 直接采纳；弱关键词(仅画质) 需要 fallback 才用
+  const TAB_STRONG = /(线路\s*\d*|优酷|腾讯视频|爱奇艺|iqiyi|qq视频|youku|云\d+|\d+云|mgtv|芒果|BD云)/i;
+  // 排除播放器控件（画质选择、音量、字幕等）
+  function isInsidePlayer(el: Element): boolean {
+    let cur: Element | null = el;
+    while (cur) {
+      const tag = cur.tagName.toLowerCase();
+      if (tag === "video" || tag.startsWith("vg-") || tag.startsWith("plyr-") || tag === "video-js") return true;
+      const cls = (cur.className || "").toString();
+      if (/vjs-|plyr__|vg-controls|art-|dplayer/i.test(cls)) return true;
+      cur = cur.parentElement;
+    }
+    return false;
+  }
+  let tabSel: string | undefined;
+  for (const tag of ["a", "div", "span", "li"]) {
+    const found = findGroupOf(tag, (el) => {
+      if (isInsidePlayer(el)) return false;
+      const txt = (el.textContent || "").trim();
+      return txt.length > 0 && txt.length <= 10 && TAB_STRONG.test(txt);
+    });
+    if (found) { tabSel = found; break; }
+  }
+  if (tabSel) spec.playTabSelector = tabSel;
 
-  // 剧集列表容器：一组 a 元素、text 短、多个（3+）
+  // 剧集列表容器：宁缺勿滥
   const epsContainer = findEpisodeContainer();
   if (epsContainer) {
     spec.playListSelector = generateStableSelector(epsContainer);
-    // 单集用第一个 a
     const firstA = epsContainer.querySelector("a");
     if (firstA) spec.playItemSelector = firstA.tagName.toLowerCase();
   }
@@ -371,8 +432,8 @@ function inferDetailInfo(): DetailSpec {
   return spec;
 }
 
-function findGroupOf(tagName: string, filter: (el: Element) => boolean): string | undefined {
-  // 找到包含至少 2 个满足条件的兄弟节点的父元素
+function findGroupOf(tagName: string, filter: (el: Element) => boolean, minCount = 2): string | undefined {
+  // 找到包含至少 minCount 个满足条件的兄弟节点的父元素
   const all = Array.from(document.querySelectorAll(tagName));
   const buckets = new Map<Element, Element[]>();
   for (const el of all) {
@@ -383,7 +444,7 @@ function findGroupOf(tagName: string, filter: (el: Element) => boolean): string 
     buckets.get(p)!.push(el);
   }
   let bestParent: Element | null = null;
-  let bestCount = 1;
+  let bestCount = minCount - 1;
   for (const [p, items] of buckets) {
     if (items.length > bestCount) {
       bestCount = items.length;
@@ -395,17 +456,20 @@ function findGroupOf(tagName: string, filter: (el: Element) => boolean): string 
 }
 
 function findEpisodeContainer(): Element | null {
-  // 找有 3+ 个 <a> 子孙、a text 短（≤ 10）、多个 a 的公共父级
-  const all = Array.from(document.querySelectorAll("ul, div, ol"));
+  // 剧集要求：3+ 个 <a>、text 短 (≤10)、且 a 内容看起来"像剧集"
+  // 剧集 pattern: 纯数字 / "第X集" / "EP\d+" / "01-XX" / "\d+" 前后带修饰
+  const EP_TEXT = /^(第[0-9零一二三四五六七八九十百]+[集话回]?|EP?\d+|\d{1,3}(-\d+)?|完结篇|预告|花絮)$/i;
+  const all = Array.from(document.querySelectorAll("ul, ol, div"));
   let best: Element | null = null;
   let bestScore = 0;
   for (const c of all) {
     const as = Array.from(c.querySelectorAll(":scope > * > a, :scope > a"));
     if (as.length < 3) continue;
-    const shortText = as.filter((a) => (a.textContent || "").trim().length <= 12).length;
-    const ratio = shortText / as.length;
-    if (ratio < 0.7) continue;
-    const score = as.length * ratio;
+    const epLike = as.filter((a) => EP_TEXT.test((a.textContent || "").trim()));
+    const ratio = epLike.length / as.length;
+    // 要求 60% 以上像剧集 (避免抓评论区/相关推荐)
+    if (ratio < 0.6) continue;
+    const score = epLike.length * ratio;
     if (score > bestScore) {
       bestScore = score;
       best = c;

@@ -345,7 +345,7 @@ async function getState(): Promise<ProjectState> {
   return projects[active] || {};
 }
 
-async function mergeState(patch: Partial<ProjectState>): Promise<ProjectState> {
+async function mergeState(patch: Partial<ProjectState>, opts?: { replace?: Array<"detail" | "home" | "baseInfo"> }): Promise<ProjectState> {
   const projects = await getAllProjects();
   let active = await getActiveHost();
 
@@ -359,9 +359,16 @@ async function mergeState(patch: Partial<ProjectState>): Promise<ProjectState> {
 
   const cur = projects[active] || {};
   const next: ProjectState = { ...cur, ...patch };
-  if (patch.detail) next.detail = { ...(cur.detail || {}), ...patch.detail };
-  if (patch.home) next.home = { ...(cur.home || {}), ...patch.home };
-  if (patch.baseInfo) next.baseInfo = { ...(cur.baseInfo || {}), ...patch.baseInfo };
+  const replace = new Set(opts?.replace || []);
+  if (patch.detail) {
+    next.detail = replace.has("detail") ? { ...patch.detail } : { ...(cur.detail || {}), ...patch.detail };
+  }
+  if (patch.home) {
+    next.home = replace.has("home") ? { ...patch.home } : { ...(cur.home || {}), ...patch.home };
+  }
+  if (patch.baseInfo) {
+    next.baseInfo = replace.has("baseInfo") ? { ...patch.baseInfo } : { ...(cur.baseInfo || {}), ...patch.baseInfo };
+  }
 
   next.updatedAt = Date.now();
   projects[active] = next;
@@ -497,7 +504,7 @@ chrome.runtime.onMessage.addListener((msg: Message | any, _sender, sendResponse)
   }
 
   if (msg.type === "SAVE_STATE") {
-    mergeState(msg.state).then((next) => sendResponse({ state: next }));
+    mergeState(msg.state, { replace: msg.replace }).then((next) => sendResponse({ state: next }));
     return true;
   }
 

@@ -34,7 +34,7 @@ export type Message =
   | { type: "OPEN_SIDEPANEL"; remember?: boolean }
   | { type: "SET_UI_PREFERENCE"; preferSidepanel: boolean }
   // 状态持久化
-  | { type: "SAVE_STATE"; state: Partial<ProjectState> }
+  | { type: "SAVE_STATE"; state: Partial<ProjectState>; replace?: Array<"detail" | "home" | "baseInfo"> }
   | { type: "GET_STATE" }
   | { type: "RESET_STATE" }
   // 多项目管理

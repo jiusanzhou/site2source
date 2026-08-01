@@ -189,10 +189,11 @@ export function Workbench() {
 
   // ==================== 保存 / 重置 ====================
 
-  async function saveState(patch: Partial<ProjectState>) {
+  async function saveState(patch: Partial<ProjectState>, opts?: { replace?: Array<"detail" | "home" | "baseInfo"> }) {
     const r = await sendToBackground<{ state: ProjectState }>({
       type: "SAVE_STATE",
       state: patch,
+      replace: opts?.replace,
     });
     if (r?.state) setState(r.state);
   }
@@ -437,7 +438,7 @@ export function Workbench() {
       setNotice("无法通信, 页面可能还没就绪");
       return;
     }
-    await saveState({ detail: res.spec });
+    await saveState({ detail: res.spec }, { replace: ["detail"] });
     setActiveCard("detail");
   };
 
