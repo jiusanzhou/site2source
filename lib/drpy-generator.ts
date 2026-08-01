@@ -60,18 +60,42 @@ export function generateDrpySpider(input: GenerateInput): string {
   const className = cats.length > 0
     ? cats.map((c) => c.name).join("&")
     : "电影&电视剧&综艺&动漫";
-  const classURL = cats.length > 0
-    ? cats.map((c, i) => extractClassId(c.url) || String(i + 1)).join("&")
-    : "1&2&3&4";
-  const urlPattern = home.categoryURLPattern
-    ? home.categoryURLPattern.replace("{class}", "{cate}") + "?page={page}"
-    : "/vodtype/{cate}-{page}.html";
+
+  // 策略选择：
+  // 1. 如果每个分类的 URL 都能被同一个 URL 模板匹配（如 /vodtype/{id}.html），
+  //    就走"模板 + id"的 apple-cms 惯例
+  // 2. 否则（aiyifan 这种多形态：/list/xx / /space/xx / /collection/xx 混杂），
+  //    直接把完整路径塞进 class_url，url 模板设成 "fyclass" 让 drpy 直接用
+  const catPaths = cats.map((c) => {
+    try { return new URL(c.url, input.baseURL).pathname + (new URL(c.url, input.baseURL).search || ""); }
+    catch { return c.url; }
+  });
+  const useDirectPath = shouldUseDirectPathStrategy(catPaths);
+
+  let classURL: string;
+  let urlPattern: string;
+  if (useDirectPath && cats.length > 0) {
+    // Direct-path 策略：class_url 存完整 path，url 模板就是 fyclass
+    classURL = catPaths.join("&");
+    // drpy 用 url 里的 fyclass 做纯文本替换，然后 host+url = 最终请求 URL
+    // 不带查询参数，因为 aiyifan 分类页大多不支持翻页
+    urlPattern = "fyclass";
+  } else if (cats.length > 0) {
+    // apple-cms 惯例
+    classURL = cats.map((c, i) => extractClassId(c.url) || String(i + 1)).join("&");
+    urlPattern = home.categoryURLPattern
+      ? home.categoryURLPattern.replace("{class}", "fyclass") + "?page=fypage"
+      : "/vodtype/fyclass-fypage.html";
+  } else {
+    classURL = "1&2&3&4";
+    urlPattern = "/vodtype/fyclass-fypage.html";
+  }
 
   lines.push(`var rule = {`);
   lines.push(`  title: '${escapeJS(input.siteName)}',`);
   lines.push(`  host: '${resolvedHost}',`);
   lines.push(`  homeUrl: '/',`);
-  lines.push(`  url: '${urlPattern.replace("{cate}", "fyclass").replace("{page}", "fypage")}',`);
+  lines.push(`  url: '${urlPattern}',`);
   lines.push(`  detailUrl: '',`);
 
   // 搜索
@@ -99,9 +123,16 @@ export function generateDrpySpider(input: GenerateInput): string {
   lines.push(`  class_url:  '${escapeJS(classURL)}',`);
   lines.push("");
 
+  // 分析 samples 判断哪些字段有值
+  const sampleRemarks = input.samples.map((s) => s.remarks || "").filter(Boolean);
+  const hasRemarks = sampleRemarks.length >= Math.max(2, input.samples.length * 0.3);
+  const remarkRule = hasRemarks
+    ? ".remark,.note,.tag,.badge,.label,.hd,.corner&&Text"
+    : "*&&data-remark|data-note"; // 空字符串会让 drpy 显示"未知"，这里给个几乎必空的 dummy 避免出错
+
   lines.push(`  // 一级列表（site2source 自动识别）`);
-  lines.push(`  // ${input.cardCount} 项 · 相似度 ${(input.similarity * 100).toFixed(0)}%`);
-  lines.push(`  一级: '${input.listSelector} ${input.itemSelector};*[title],img&&alt,text;img&&data-original||data-src||src;.*?(HD[0-9]*|4K|更新至第?.+?集|第.+?集|全.+?集|完结|连载|BD|超清|高清|\\\\d{4}).*?;a&&href',`);
+  lines.push(`  // ${input.cardCount} 项 · 相似度 ${(input.similarity * 100).toFixed(0)}%${hasRemarks ? "" : " · 未识别到 remarks 标签"}`);
+  lines.push(`  一级: '${input.listSelector} ${input.itemSelector};*[title],img&&alt,text;img&&data-original||data-src||src;${remarkRule};a&&href',`);
   lines.push("");
 
   // 二级
@@ -281,6 +312,23 @@ function extractClassId(url: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * 判断是否应该走 direct-path 策略（class_url 存完整路径）。
+ * 触发条件：分类 URL 出现"多种一级路径前缀"（如 /list/、/space/、/collection/、/movie、/drama），
+ *          此时无法用统一模板 /prefix/{id} 表达，只能每个都塞完整路径。
+ */
+function shouldUseDirectPathStrategy(paths: string[]): boolean {
+  if (paths.length <= 1) return false;
+  // 收集第一段（跳过带 id 的最后一段）
+  const roots = new Set<string>();
+  for (const p of paths) {
+    const seg = p.split("?")[0].split("/").filter(Boolean)[0];
+    if (seg) roots.add(seg.toLowerCase());
+  }
+  // 有 2 个及以上不同的一级前缀 → direct-path
+  return roots.size >= 2;
 }
 
 // ==================== tvbox.json ====================
