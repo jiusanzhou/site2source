@@ -164,8 +164,12 @@ export function generateDrpySpider(input: GenerateInput): string {
 
   // 搜索规则
   if (home.searchAction || home.searchInputSelector) {
-    lines.push(`  // 搜索规则（selector 从一级列表复用，如结果页 DOM 不同请手改）`);
-    lines.push(`  搜索: '${input.listSelector} ${input.itemSelector};*[title],img&&alt,text;img&&data-original||data-src||src;${remarkRule};a&&href',`);
+    // 优先用识别到的 searchListSelector；否则复用一级 selector（DOM 不同的话手改）
+    const searchListSel = home.searchListSelector || `${input.listSelector} ${input.itemSelector}`;
+    // drpy 语法：分号分隔的多段规则，整体用单引号包裹。如果 selector 里含单引号（[href*='...']）会破坏字符串，转成双引号
+    const safeSearchListSel = searchListSel.replace(/'/g, '"');
+    lines.push(`  // 搜索规则（selector 从${home.searchListSelector ? "搜索结果页学习" : "一级列表复用，结果页 DOM 不同请手改"}）`);
+    lines.push(`  搜索: '${safeSearchListSel};*[title],img&&alt,text;img&&data-original||data-src||src;${remarkRule};a&&href',`);
   } else {
     lines.push(`  搜索: '*',                          // TODO`);
   }
@@ -287,7 +291,12 @@ function generateLazyFunction(media: CapturedMedia[], baseURL: string): string {
   lines.push(`      log('lazy fail: ' + e.message);`);
   lines.push(`    }`);
   lines.push(`    // 兜底: 交给 Drpy 内置嗅探`);
-  lines.push(`    return { parse: 1, url: id, header: { 'Referer': '${escapeJS(referer)}' } };`);
+  if (pattern.commonHost) {
+    lines.push(`    // 已知视频 host: ${pattern.commonHost} — drpy 会过滤此域名的响应`);
+    lines.push(`    return { parse: 1, url: id, sniffer: 1, sniffCustomRegex: '${escapeJS(pattern.commonHost)}', header: { 'Referer': '${escapeJS(referer)}' } };`);
+  } else {
+    lines.push(`    return { parse: 1, url: id, header: { 'Referer': '${escapeJS(referer)}' } };`);
+  }
   lines.push(`  }`);
   return lines.join("\n");
 }

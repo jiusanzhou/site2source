@@ -422,6 +422,8 @@ function inferDetailInfo(): DetailSpec {
   if (tabSel) spec.playTabSelector = tabSel;
 
   // 剧集列表容器：宁缺勿滥
+  // 注意：GET_DETAIL_INFO handler 会在调用本函数前先 expandCollapsedEpisodeList + 等 700ms，
+  // 保证 SPA 折叠列表已展开
   const epsContainer = findEpisodeContainer();
   if (epsContainer) {
     spec.playListSelector = generateStableSelector(epsContainer);
@@ -430,6 +432,29 @@ function inferDetailInfo(): DetailSpec {
   }
 
   return spec;
+}
+
+/**
+ * 展开可能折叠的剧集列表。
+ * 常见 SPA 模式：一个 trigger 按钮 + 一个默认 hidden 的容器。
+ * 点了不会破坏页面：多余的点击最多把 modal 打开又关上。
+ */
+function expandCollapsedEpisodeList() {
+  const triggerSelectors = [
+    ".player-media-list-trigger",              // aiyifan
+    ".episode-list-trigger",
+    "[class*='episode-trigger' i]",
+    "[class*='ep-more' i]",
+    "[class*='expand-episode' i]",
+    "[class*='show-episode' i]",
+    "app-player-media-list [class*='trigger' i]",
+  ];
+  for (const sel of triggerSelectors) {
+    const els = document.querySelectorAll<HTMLElement>(sel);
+    for (const el of els) {
+      try { el.click(); } catch {}
+    }
+  }
 }
 
 function findGroupOf(tagName: string, filter: (el: Element) => boolean, minCount = 2): string | undefined {
@@ -459,23 +484,50 @@ function findEpisodeContainer(): Element | null {
   // 剧集要求：3+ 个 <a>、text 短 (≤10)、且 a 内容看起来"像剧集"
   // 剧集 pattern: 纯数字 / "第X集" / "EP\d+" / "01-XX" / "\d+" 前后带修饰
   const EP_TEXT = /^(第[0-9零一二三四五六七八九十百]+[集话回]?|EP?\d+|\d{1,3}(-\d+)?|完结篇|预告|花絮)$/i;
-  const all = Array.from(document.querySelectorAll("ul, ol, div"));
-  let best: Element | null = null;
-  let bestScore = 0;
-  for (const c of all) {
-    const as = Array.from(c.querySelectorAll(":scope > * > a, :scope > a"));
-    if (as.length < 3) continue;
-    const epLike = as.filter((a) => EP_TEXT.test((a.textContent || "").trim()));
-    const ratio = epLike.length / as.length;
-    // 要求 60% 以上像剧集 (避免抓评论区/相关推荐)
-    if (ratio < 0.6) continue;
-    const score = epLike.length * ratio;
-    if (score > bestScore) {
-      bestScore = score;
-      best = c;
+
+  // 先找所有 "像剧集" 的 a 元素
+  const allAs = Array.from(document.querySelectorAll("a"));
+  const epAs = allAs.filter((a) => EP_TEXT.test((a.textContent || "").trim()));
+  if (epAs.length < 3) return null;
+
+  // 从这些 a 往上找共同祖先：
+  // - 遍历每个候选容器（每个 ep a 的祖先链）
+  // - 计算容器里 "包含的 ep-like a" / "总 a" 比例
+  // - 选比例 ≥60% 且数量最多、且容器体积最小（避免选到 body）
+  const containerStats = new Map<Element, { epCount: number; totalA: number }>();
+  for (const a of epAs) {
+    let p: Element | null = a.parentElement;
+    // 最多爬 8 层，避免爬到 body
+    for (let depth = 0; depth < 8 && p; depth++) {
+      const cur = p;
+      if (!containerStats.has(cur)) {
+        const totalA = cur.querySelectorAll("a").length;
+        containerStats.set(cur, { epCount: 0, totalA });
+      }
+      containerStats.get(cur)!.epCount++;
+      p = p.parentElement;
     }
   }
-  return best;
+
+  const candidates: Array<{ el: Element; epCount: number; totalA: number; ratio: number }> = [];
+  for (const [el, s] of containerStats) {
+    if (s.epCount < 3) continue;
+    const ratio = s.epCount / Math.max(s.totalA, 1);
+    if (ratio < 0.6) continue;
+    candidates.push({ el, epCount: s.epCount, totalA: s.totalA, ratio });
+  }
+  if (candidates.length === 0) return null;
+
+  // 排序：
+  //   1. 优先 epCount 更多（更完整的列表）
+  //   2. epCount 相同时选 totalA 最小的（=最内层，无冗余）
+  //   3. ratio 高的
+  candidates.sort((a, b) => {
+    if (b.epCount !== a.epCount) return b.epCount - a.epCount;
+    if (a.totalA !== b.totalA) return a.totalA - b.totalA;
+    return b.ratio - a.ratio;
+  });
+  return candidates[0].el;
 }
 
 // ==================== 首页 / 分类识别 ====================
@@ -623,6 +675,41 @@ function inferHomeInfo(): HomeSpec {
         spec.searchTriggerHint = "button-click";
       } else {
         spec.searchTriggerHint = "enter";
+      }
+    }
+  }
+
+  // c) 如果当前页 URL 已经是搜索结果页（/search/xxx），学 searchListSelector + searchAction 模板
+  //    这是"用户在搜索结果页按学习按钮"的场景
+  const path = location.pathname;
+  const searchPathMatch = path.match(/^(\/(?:search|find|s)\/?)([^/?#]*)$/i);
+  if (searchPathMatch && searchPathMatch[2]) {
+    const prefix = searchPathMatch[1];
+    // path 里含关键词 → 前端路由搜索模式
+    spec.searchAction = `${location.origin}${prefix}{wd}`;
+    spec.searchParam = "wd";
+    // 找结果卡片：a[href*='/play/'] 或 a[href*='/watch'] 或 a[href*='/detail'] 的共同祖先
+    const links = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href*="/play/"], a[href*="/watch"], a[href*="/detail"]'));
+    if (links.length >= 3) {
+      const ancestorCount = new Map<Element, number>();
+      for (const a of links) {
+        let p: Element | null = a.parentElement;
+        for (let d = 0; d < 6 && p; d++) {
+          ancestorCount.set(p, (ancestorCount.get(p) || 0) + 1);
+          p = p.parentElement;
+        }
+      }
+      // 挑 count 最多且节点最深的
+      let best: Element | null = null;
+      let bestCount = 0;
+      for (const [el, c] of ancestorCount) {
+        if (c < 3) continue;
+        // 太大的容器（body/main）不要
+        if (el.tagName === "BODY" || el.tagName === "MAIN" || el.tagName === "HTML") continue;
+        if (c > bestCount) { bestCount = c; best = el; }
+      }
+      if (best) {
+        spec.searchListSelector = `${generateStableSelector(best)} a[href*='/play/'], ${generateStableSelector(best)} a[href*='/watch']`;
       }
     }
   }
@@ -780,14 +867,19 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
   }
 
   if (msg.type === "GET_DETAIL_INFO") {
-    const spec = inferDetailInfo();
-    // 可视化：把推断出的字段高亮
-    clearOverlay();
-    if (spec.titleSelector) tryHighlight(spec.titleSelector, 0, "标题");
-    if (spec.descSelector) tryHighlight(spec.descSelector, 1, "简介");
-    if (spec.playTabSelector) tryHighlight(spec.playTabSelector, 2, "线路");
-    if (spec.playListSelector) tryHighlight(spec.playListSelector, 3, "剧集");
-    sendResponse({ site: extractSiteInfo(), spec });
+    (async () => {
+      // 先尝试展开折叠的剧集列表（Angular SPA 常见模式），等 DOM 更新
+      expandCollapsedEpisodeList();
+      await new Promise((r) => setTimeout(r, 700));
+      const spec = inferDetailInfo();
+      // 可视化：把推断出的字段高亮
+      clearOverlay();
+      if (spec.titleSelector) tryHighlight(spec.titleSelector, 0, "标题");
+      if (spec.descSelector) tryHighlight(spec.descSelector, 1, "简介");
+      if (spec.playTabSelector) tryHighlight(spec.playTabSelector, 2, "线路");
+      if (spec.playListSelector) tryHighlight(spec.playListSelector, 3, "剧集");
+      sendResponse({ site: extractSiteInfo(), spec });
+    })();
     return true;
   }
 

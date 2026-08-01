@@ -162,6 +162,7 @@ export interface HomeSpec {
   searchInputSelector?: string; // 搜索输入框的 CSS selector（无 form 站点也能用）
   searchTriggerHint?: "form-submit" | "enter" | "button-click" | "unknown"; // 触发方式提示
   searchButtonSelector?: string; // 附近的搜索按钮 selector（如果有）
+  searchListSelector?: string; // 搜索结果卡片容器 selector（从真实搜索结果页学到）
   categoryURLPattern?: string; // 如 "/vodtype/{class}-{page}.html"
 }
 

@@ -52,10 +52,29 @@ const proj = {
     searchParam: "wd",
     searchInputSelector: "#search-input",
     searchTriggerHint: "enter",
+    // 从搜索结果页 DOM 探测拿到
+    searchListSelector: "div.search-results a[href*='/play/']",
   },
 };
 
-const media = [];
+const media = [
+  // 从 aiyifan 剧集页 CDP 观测抓到的（sss111-e1.pipecdn.vip m3u8 + ts）
+  {
+    url: "https://sss111-e1.pipecdn.vip/ppotb62-S71lT2yliZApDBSvkYzBsrmD3fpCJ4nBsjsRsGlR7XgBMfjBJ0nBJ0pCK4qDpGnHYvjS34/chunklist.m3u8?vendtime=1785774174&vhash=Ip4D8mCfVadIhxyM-g--SdfzRzZJA1-UNRKHyfqmRF4=",
+    type: "m3u8",
+    referer: "https://www.aiyifan.tv/",
+  },
+  {
+    url: "https://sss111-e1.pipecdn.vip/ppotb62-S71lT2yliZApDBSvkYzBsrmD3fpCJ4nBsjsRsGlR7XgBMfjBJ0nBJ0pCK4qDpGnHYvjS34/media_0.ts?vCustomParameter=0_103.167.27.48_SG_1_0_1_0&lb=69167f95254b071bf2caec70e3b6f6bd&ab=a",
+    type: "ts",
+    referer: "https://www.aiyifan.tv/",
+  },
+  {
+    url: "https://sss111-e1.pipecdn.vip/ppotb62-S71lT2yliZApDBSvkYzBsrmD3fpCJ4nBsjsRsGlR7XgBMfjBJ0nBJ0pCK4qDpGnHYvjS34/media_1.ts?vCustomParameter=0_103.167.27.48_SG_1_0_1_0&lb=69167f95254b071bf2caec70e3b6f6bd&ab=b",
+    type: "ts",
+    referer: "https://www.aiyifan.tv/",
+  },
+];
 
 const input = {
   siteName: proj.site.siteName,
