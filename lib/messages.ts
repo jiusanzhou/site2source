@@ -23,6 +23,8 @@ export type Message =
   | { type: "GET_DETAIL_INFO" }
   // 首页学习（分类导航 + 搜索）
   | { type: "GET_HOME_INFO" }
+  // 从抓包的 XHR 里学 searchAction（用户先在页面搜一次）
+  | { type: "LEARN_SEARCH_FROM_XHR"; probeKeyword: string }
   // 抓取的媒体
   | { type: "GET_CAPTURED_MEDIA" }
   | { type: "CLEAR_CAPTURED_MEDIA" }
@@ -157,6 +159,9 @@ export interface HomeSpec {
   categories?: { name: string; url: string }[]; // 识别到的分类
   searchAction?: string; // 搜索 form 的 action URL 模板
   searchParam?: string; // 搜索关键词参数名
+  searchInputSelector?: string; // 搜索输入框的 CSS selector（无 form 站点也能用）
+  searchTriggerHint?: "form-submit" | "enter" | "button-click" | "unknown"; // 触发方式提示
+  searchButtonSelector?: string; // 附近的搜索按钮 selector（如果有）
   categoryURLPattern?: string; // 如 "/vodtype/{class}-{page}.html"
 }
 

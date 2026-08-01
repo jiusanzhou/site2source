@@ -451,6 +451,91 @@ chrome.runtime.onMessage.addListener((msg: Message | any, _sender, sendResponse)
     return true;
   }
 
+  if (msg.type === "LEARN_SEARCH_FROM_XHR") {
+    // 从当前 tab 抓包的 XHR 里筛出搜索 API：
+    //   1) URL 含 keyword/search/find/query 词
+    //   2) URL param 或 body 里含 probeKeyword 字符串
+    //   3) 生成一个 searchAction 模板（{wd} 占位）
+    const probe = (msg.probeKeyword || "").trim();
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+      const tabId = tabs[0]?.id;
+      if (tabId == null) return sendResponse({ ok: false, reason: "no-tab" });
+      const xhrs = await getXHRForTab(tabId);
+      const encodedProbe = probe ? encodeURIComponent(probe) : "";
+      const candidates: Array<{ url: string; method: string; param?: string; score: number; template: string; matchMode: "url" | "body" }> = [];
+      for (const x of xhrs) {
+        if (!x?.url) continue;
+        let score = 0;
+        let hitParam: string | undefined;
+        let template = "";
+        let matchMode: "url" | "body" = "url";
+        try {
+          const u = new URL(x.url);
+          // URL path 含关键词
+          if (/(search|find|query|s\/|keyword|suggest)/i.test(u.pathname)) score += 3;
+          // URL param 命中
+          for (const [k, v] of u.searchParams.entries()) {
+            if (probe && (v === probe || v === encodedProbe || v.includes(probe))) {
+              hitParam = k;
+              score += 5;
+              const clone = new URL(u.toString());
+              clone.searchParams.set(k, "{wd}");
+              // 保留 origin + path + 替换后 querystring
+              template = clone.origin + clone.pathname + "?" + Array.from(clone.searchParams.entries())
+                .map(([kk, vv]) => `${kk}=${vv === "{wd}" ? "**" : encodeURIComponent(vv)}`)
+                .join("&");
+              matchMode = "url";
+            }
+            if (/(wd|keyword|q|search|word|key|query)/i.test(k) && !hitParam) {
+              hitParam = k;
+              score += 2;
+            }
+          }
+          // path 里含 probe 值本身
+          if (probe && u.pathname.includes(probe)) {
+            score += 4;
+            template = u.origin + u.pathname.replace(probe, "**") + (u.search || "");
+            matchMode = "url";
+          }
+          if (probe && u.pathname.includes(encodedProbe)) {
+            score += 4;
+            template = u.origin + u.pathname.replace(encodedProbe, "**") + (u.search || "");
+            matchMode = "url";
+          }
+          // body 里含 probe
+          if (probe && x.reqBody && x.reqBody.includes(probe)) {
+            score += 4;
+            template = x.url + ";post";
+            matchMode = "body";
+          }
+        } catch { continue; }
+        if (score > 0) {
+          if (!template) {
+            // 兜底：如果只匹到 param 名，把它填成 {wd}
+            try {
+              const u = new URL(x.url);
+              if (hitParam) {
+                u.searchParams.set(hitParam, "**");
+                template = u.origin + u.pathname + "?" + Array.from(u.searchParams.entries()).map(([kk, vv]) => `${kk}=${vv}`).join("&");
+              } else {
+                template = x.url;
+              }
+            } catch {}
+          }
+          candidates.push({ url: x.url, method: x.method, param: hitParam, score, template, matchMode });
+        }
+      }
+      candidates.sort((a, b) => b.score - a.score);
+      const best = candidates[0];
+      sendResponse({
+        ok: true,
+        candidates: candidates.slice(0, 5),
+        best: best ? { searchAction: best.template, searchParam: best.param, method: best.method, matchMode: best.matchMode } : undefined,
+      });
+    });
+    return true;
+  }
+
   if (msg.type === "CLEAR_CAPTURED_XHR") {
     chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
       const tabId = tabs[0]?.id;

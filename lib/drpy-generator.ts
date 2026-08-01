@@ -101,9 +101,25 @@ export function generateDrpySpider(input: GenerateInput): string {
   // 搜索
   if (home.searchAction) {
     const searchTmpl = home.searchAction.replace("{wd}", "**").replace(/^https?:\/\/[^/]+/, "");
-    lines.push(`  searchUrl: '${searchTmpl};post',  // TODO: 若为 GET 改为不带 ';post'`);
+    // 判断 GET vs POST：
+    //   - path 里含 ** 且 URL 没 querystring → 前端路由，GET
+    //   - 有 ? 但 querystring 里含 ** → GET
+    //   - 只有 body 里有关键词（不太可能出现在 URL 模板里）→ POST
+    const isPost = !searchTmpl.includes("**") || searchTmpl.endsWith(";post");
+    const finalSearchUrl = isPost && !searchTmpl.endsWith(";post") ? `${searchTmpl};post` : searchTmpl;
+    lines.push(`  searchUrl: '${finalSearchUrl}',`);
     lines.push(`  searchable: 1,`);
     lines.push(`  quickSearch: 1,`);
+  } else if (home.searchInputSelector) {
+    // SPA 站点：识别到了输入框但没抓到具体 API URL
+    // 给多个候选，最常见的先试
+    lines.push(`  // 🔍 检测到搜索输入框 (${home.searchInputSelector.slice(0, 60)}${home.searchInputSelector.length > 60 ? "…" : ""})`);
+    lines.push(`  //    未抓到搜索 API URL，以下是常见候选，请测试后保留一条:`);
+    lines.push(`  //      /search?keyword=**    /search?q=**    /search?wd=**`);
+    lines.push(`  //      /search/**            /s/**           /find?q=**`);
+    lines.push(`  searchUrl: '/search?keyword=**',   // TODO: 若不匹配请换成上面其他候选`);
+    lines.push(`  searchable: 1,`);
+    lines.push(`  quickSearch: 0,                   // 搜索前先测试是否可用`);
   } else {
     lines.push(`  searchUrl: '',                     // TODO: 搜索 URL 模板`);
     lines.push(`  searchable: 0,`);
@@ -147,9 +163,9 @@ export function generateDrpySpider(input: GenerateInput): string {
   lines.push("");
 
   // 搜索规则
-  if (home.searchAction) {
-    lines.push(`  // 搜索规则（site2source 自动识别搜索表单）`);
-    lines.push(`  搜索: '${input.listSelector} ${input.itemSelector};*[title],img&&alt,text;img&&data-original||data-src||src;.*(HD|更新|完结|\\\\d{4}).*;a&&href',`);
+  if (home.searchAction || home.searchInputSelector) {
+    lines.push(`  // 搜索规则（selector 从一级列表复用，如结果页 DOM 不同请手改）`);
+    lines.push(`  搜索: '${input.listSelector} ${input.itemSelector};*[title],img&&alt,text;img&&data-original||data-src||src;${remarkRule};a&&href',`);
   } else {
     lines.push(`  搜索: '*',                          // TODO`);
   }

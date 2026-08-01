@@ -546,20 +546,32 @@ function inferHomeInfo(): HomeSpec {
     }
   }
 
-  // 2. 搜索识别：找 <form> 里有 input[name=wd|keyword|q|search|s]
+  // 2. 搜索识别：
+  //    a) 优先找 <form> 里的搜索 input（传统站点）
+  //    b) 无 form 也要能识别（SPA 站：Angular/React/Vue）
+  const isSearchInput = (i: HTMLInputElement): boolean => {
+    const n = (i.name || "").toLowerCase();
+    const t = (i.type || "").toLowerCase();
+    const p = (i.placeholder || "").toLowerCase();
+    const id = (i.id || "").toLowerCase();
+    const cls = (i.className || "").toLowerCase();
+    const aria = (i.getAttribute("aria-label") || "").toLowerCase();
+    return (
+      t === "search" ||
+      (n && /(wd|keyword|q|search|s|key|word)/.test(n)) ||
+      /search|搜索|查找|关键词/.test(p) ||
+      /search|搜索/.test(aria) ||
+      /(^|[\s_-])(search|srch)([\s_-]|$)/.test(id) ||
+      /(^|\s)(search|srch)(\s|$)/.test(cls)
+    );
+  };
+
+  // a) 传统 form
   const forms = Array.from(document.querySelectorAll("form"));
+  let foundInForm = false;
   for (const f of forms) {
     const inputs = Array.from(f.querySelectorAll("input"));
-    const searchInput = inputs.find((i) => {
-      const n = (i.name || "").toLowerCase();
-      const t = (i.type || "").toLowerCase();
-      const p = (i.placeholder || "").toLowerCase();
-      return (
-        (n && /(wd|keyword|q|search|s|key|word)/.test(n)) ||
-        t === "search" ||
-        /search|搜索|查找|关键词/.test(p)
-      );
-    });
+    const searchInput = inputs.find(isSearchInput);
     if (searchInput) {
       const action = f.getAttribute("action") || location.pathname;
       const method = (f.getAttribute("method") || "get").toLowerCase();
@@ -572,8 +584,46 @@ function inferHomeInfo(): HomeSpec {
           spec.searchAction = actionURL.toString();
         }
         spec.searchParam = param;
+        spec.searchInputSelector = generateStableSelector(searchInput);
+        spec.searchTriggerHint = "form-submit";
+        foundInForm = true;
         break;
       } catch {}
+    }
+  }
+
+  // b) SPA 无 form：找散落的搜索输入框
+  if (!foundInForm) {
+    const allInputs = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input, [role="searchbox"], [contenteditable="true"][class*="search" i]')
+    );
+    // 只取可见且可交互
+    const candidates = allInputs.filter((i) => {
+      if (i.tagName !== "INPUT" && !i.matches('[role="searchbox"]') && !i.matches('[contenteditable]')) return false;
+      const r = i.getBoundingClientRect();
+      if (r.width < 40 || r.height < 12) return false;
+      if (i.disabled) return false;
+      return i.tagName === "INPUT" ? isSearchInput(i as HTMLInputElement) : true;
+    });
+    if (candidates.length > 0) {
+      // 优先选最上面的（通常在 header）
+      candidates.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+      const el = candidates[0];
+      spec.searchInputSelector = generateStableSelector(el);
+      // 猜触发方式：附近有 button 就 button-click；否则 enter
+      const near =
+        el.parentElement?.querySelector<HTMLElement>(
+          'button, [role="button"], .search-btn, .btn-search, [class*="search-button" i], svg[class*="search" i]'
+        ) ||
+        el.closest("div,section,header")?.querySelector<HTMLElement>(
+          'button, [role="button"], .search-btn, [class*="search-btn" i], [class*="search-button" i]'
+        );
+      if (near && near !== el) {
+        spec.searchButtonSelector = generateStableSelector(near);
+        spec.searchTriggerHint = "button-click";
+      } else {
+        spec.searchTriggerHint = "enter";
+      }
     }
   }
 

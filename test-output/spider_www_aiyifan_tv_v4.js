@@ -1,5 +1,5 @@
 // site2source-ext auto-generated Drpy T4 spider for www.aiyifan.tv
-// Generated: 2026-08-01T06:54:28.776Z
+// Generated: 2026-08-01T15:05:17.943Z
 // Site: https://www.aiyifan.tv
 
 var rule = {
@@ -8,9 +8,9 @@ var rule = {
   homeUrl: '/',
   url: 'fyclass',
   detailUrl: '',
-  searchUrl: '',                     // TODO: 搜索 URL 模板
-  searchable: 0,
-  quickSearch: 0,
+  searchUrl: '/search/**',
+  searchable: 1,
+  quickSearch: 1,
   filterable: 0,
   headers: {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -35,7 +35,8 @@ var rule = {
     lists: '.playlist,.play-list',
   },
 
-  搜索: '*',                          // TODO
+  // 搜索规则（selector 从一级列表复用，如结果页 DOM 不同请手改）
+  搜索: 'div.rec-track div;*[title],img&&alt,text;img&&data-original||data-src||src;*&&data-remark|data-note;a&&href',
 
   lazy: async function (flag, id, flags) {
     // TODO: 未抓到播放地址，交给 Drpy 内置嗅探
@@ -63,6 +64,8 @@ var rule = {
     - 心理学电影: https://www.aiyifan.tv/collection/dWU6SWoQcZ0
     - 电视剧: https://www.aiyifan.tv/drama
     - 港剧: https://www.aiyifan.tv/list/drama?region=%E9%A6%99%E6%B8%AF
+
+  搜索: https://www.aiyifan.tv/search/{wd} (参数: wd)
 
   列表样本 (前 5):
     1. 24小时内近4.9万名移民进入西班牙休达 [1008]

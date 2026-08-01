@@ -47,6 +47,11 @@ const proj = {
       { name: "动画", url: "https://www.aiyifan.tv/yule" },
       { name: "沙盘上的战争", url: "https://www.aiyifan.tv/collection/K0LQGCsJlNkf5NJz21Zyz9" },
     ],
+    // 从 CDP 探测拿到：填入寒战 + 回车后 URL 变成 /search/寒战
+    searchAction: "https://www.aiyifan.tv/search/{wd}",
+    searchParam: "wd",
+    searchInputSelector: "#search-input",
+    searchTriggerHint: "enter",
   },
 };
 
