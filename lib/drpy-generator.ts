@@ -441,6 +441,12 @@ export interface APIGenerateInput {
     };
     /** V0.11: 从 sampleResponse 探测出来的播放解析片段 (JS 代码) */
     playSnippet?: string;
+    /**
+     * urlTemplate 是"前端页面路由"而非 JSON API。
+     * SPA 站详情 API 常带严格签名（逆向不划算），这时用前端路由 + drpy 嗅探更稳。
+     * 置 true 时生成的 二级 不会尝试 JSON.parse，直接返回占位 vod 让播放走嗅探。
+     */
+    isFrontendRoute?: boolean;
   };
 
   search?: {
@@ -501,7 +507,9 @@ export function generateAPIDrpySpider(input: APIGenerateInput): string {
 
   lines.push(`var rule = {`);
   lines.push(`  title: '${escapeJS(input.siteName)}',`);
-  lines.push(`  host: 'https://${input.host}',`);
+  // input.host 可能已含协议（调用方来源不一），别无脑加前缀
+  const hostVal = /^https?:\/\//i.test(input.host) ? input.host : `https://${input.host}`;
+  lines.push(`  host: '${escapeJS(hostVal)}',`);
   lines.push(`  homeUrl: '/',`);
   lines.push(`  url: '${escapeJS(homeURL)}${homeMethod}',`);
   lines.push(`  detailUrl: '${input.detail ? escapeJS(replacePlaceholders(input.detail.urlTemplate)) : ""}',`);
@@ -555,7 +563,24 @@ export function generateAPIDrpySpider(input: APIGenerateInput): string {
   lines.push(``);
 
   // ========== detail 二级解析 (API 模式) ==========
-  if (input.detail) {
+  if (input.detail?.isFrontendRoute) {
+    // 前端路由模式：详情 API 带严格签名逆向不划算，直接把页面 URL 当播放地址，
+    // 让 drpy 打开页面 + 嗅探视频流。剧集列表拿不到（只能播当前集），
+    // 但对"能播"这个核心目标够用。
+    lines.push(`  // 二级详情: SPA 前端路由模式（详情 API 带签名，走嗅探）`);
+    lines.push(`  二级: async function(ids) {`);
+    lines.push(`    let id = ids[0];`);
+    lines.push(`    let pageUrl = '${escapeJS(input.detail.urlTemplate)}'.replace('{id}', id);`);
+    lines.push(`    // 页面 URL 直接当播放源，播放时由 drpy 嗅探真实流`);
+    lines.push(`    return {`);
+    lines.push(`      vod_id: id,`);
+    lines.push(`      vod_name: '',`);
+    lines.push(`      vod_play_from: '嗅探',`);
+    lines.push(`      vod_play_url: '正片$' + pageUrl,`);
+    lines.push(`    };`);
+    lines.push(`  },`);
+    lines.push(``);
+  } else if (input.detail) {
     lines.push(`  // 二级详情: 从 JSON API 解析`);
     lines.push(`  二级: async function(ids) {`);
     lines.push(`    let id = ids[0];`);

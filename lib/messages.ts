@@ -33,6 +33,8 @@ export type Message =
   | { type: "GET_CAPTURED_XHR" }
   | { type: "CLEAR_CAPTURED_XHR" }
   | { type: "REPLAY_XHR"; xhr: CapturedXHR }
+  // SPA 站：从抓包响应体里分析出"视频列表 API 端点 + 字段映射"
+  | { type: "HARVEST_SPA_ENDPOINTS" }
   | { type: "OPEN_SIDEPANEL"; remember?: boolean }
   | { type: "SET_UI_PREFERENCE"; preferSidepanel: boolean }
   // 状态持久化

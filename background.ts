@@ -9,6 +9,7 @@
 import type { CapturedMedia, CapturedXHR, ProjectState, Message } from "~lib/messages";
 import { guessRoleFromXHR } from "~lib/role-guess";
 import { probeM3U8 } from "~lib/m3u8-probe";
+import { analyzeHarvest } from "~lib/spa-harvester";
 
 const MEDIA_EXT_RE = /\.(m3u8|mp4|flv|ts)(\?|$)/i;
 // 判断"可能是 API"的启发式: 路径含常见关键词, 或返回内容是 JSON
@@ -438,6 +439,34 @@ chrome.runtime.onMessage.addListener((msg: Message | any, _sender, sendResponse)
         chrome.action.setBadgeText({ tabId, text: String(total) });
       }
       sendResponse({ ok: true });
+    });
+    return true;
+  }
+
+  if (msg.type === "HARVEST_SPA_ENDPOINTS") {
+    // SPA 站（Angular/React/Vue）分类页 HTML 是空壳，内容全靠带签名的 XHR。
+    // 与其逆向签名，不如让页面自己发请求，我们只分析已抓到的响应体。
+    // 这里从当前 tab 的抓包记录里，挑出"返回视频列表"的端点 + 推断字段映射。
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+      const tabId = tabs[0]?.id;
+      if (tabId == null) return sendResponse({ ok: false, reason: "no-tab", endpoints: [] });
+      const xhrs = await getXHRForTab(tabId);
+      const raw = xhrs
+        .filter((x) => x?.respBody && !x.respTruncated)
+        .map((x) => ({ url: x.url, method: x.method || "GET", body: x.respBody! }));
+      // 被截断的响应体 JSON.parse 会失败，单独统计好让 UI 提示
+      const truncated = xhrs.filter((x) => x?.respBody && x.respTruncated).length;
+      try {
+        const endpoints = analyzeHarvest(raw);
+        sendResponse({
+          ok: true,
+          endpoints,
+          scanned: raw.length,
+          truncated,
+        });
+      } catch (e) {
+        sendResponse({ ok: false, reason: String(e), endpoints: [] });
+      }
     });
     return true;
   }
