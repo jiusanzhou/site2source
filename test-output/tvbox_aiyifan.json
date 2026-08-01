@@ -1,0 +1,18 @@
+{
+  "spider": "",
+  "sites": [
+    {
+      "key": "aiyifan_t3",
+      "name": "爱壹帆(T3)",
+      "type": 3,
+      "api": "http://10.0.2.2:8899/spider_aiyifan_t3.js",
+      "searchable": 1,
+      "quickSearch": 1,
+      "filterable": 0
+    }
+  ],
+  "parses": [{ "name": "Web", "type": 3, "url": "Web" }],
+  "flags": ["youku","qq","iqiyi","mgtv","bilibili"],
+  "ijk": [],
+  "ads": []
+}
