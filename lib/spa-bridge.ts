@@ -163,9 +163,11 @@ export function bridgeToAPISpider(
   const requiresSignature = strippedSignatures.length > 0;
   if (requiresSignature) {
     warnings.push(
-      `⛔ 该端点带签名参数（${strippedSignatures.join(", ")}）。` +
-        `签名是一次性的，spider 复用会返回"签名错误"。` +
-        `API 型 spider 对本站不可用 —— 建议改用「前端路由 + 嗅探」型，或放弃本站。`
+      `⚠️ 该端点带签名参数（${strippedSignatures.join(", ")}）。签名是一次性的，` +
+        `直接复用抓包 URL 会返回"签名错误"。两条路：` +
+        `(A) 逆向签名算法，在 spider 里自己算 —— 首选，aiyifan 实测可行（md5 + 时间戳）；` +
+        `(B) 逆不出来时退回「前端路由 + 嗅探」型 spider。` +
+        `注意：别看到"签名错误"就放弃，那个错误消息也可能是配额限流导致的。`
     );
   }
 
