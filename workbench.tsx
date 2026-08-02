@@ -1098,7 +1098,13 @@ export function Workbench() {
       {/* ==================== 模态 ==================== */}
 
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
-      {showSiteModel && <SiteModelEditor onClose={() => setShowSiteModel(false)} />}
+      {showSiteModel && (
+        <SiteModelEditor
+          onClose={() => setShowSiteModel(false)}
+          capturedXhrs={xhrs}
+          siteUrl={state.site?.url}
+        />
+      )}
       {showProjects && (
         <ProjectsPanel
           projects={projects}

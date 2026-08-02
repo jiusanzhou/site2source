@@ -33,6 +33,8 @@ import { useState, useMemo, useCallback } from "react";
 import type { SiteModel } from "~lib/site-model";
 import { generateT3SpiderFromModel } from "~lib/model-generator";
 import { AIYIFAN_MODEL } from "~lib/sites/aiyifan";
+import { inferSiteModel } from "~lib/model-inferrer";
+import type { CapturedXHR } from "~lib/messages";
 import { SignVerifierPanel } from "./verifier";
 
 // 内置模板
@@ -64,16 +66,21 @@ const TEMPLATES: Record<string, SiteModel> = {
 
 interface Props {
   onClose: () => void;
+  /** 当前站抓到的 XHR (用于"从抓包推理"按钮) */
+  capturedXhrs?: CapturedXHR[];
+  /** 当前站的 URL */
+  siteUrl?: string;
 }
 
-export function SiteModelEditor({ onClose }: Props) {
+export function SiteModelEditor({ onClose, capturedXhrs, siteUrl }: Props) {
   const [model, setModel] = useState<SiteModel>(AIYIFAN_MODEL);
   const [mode, setMode] = useState<"form" | "json">("form");
   const [jsonText, setJsonText] = useState(() => JSON.stringify(AIYIFAN_MODEL, null, 2));
   const [jsonError, setJsonError] = useState<string>("");
-  const [showVerifier, setShowVerifier] = useState<number | null>(null); // 签名模式索引
+  const [showVerifier, setShowVerifier] = useState<number | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [copiedMsg, setCopiedMsg] = useState("");
+  const [inferHints, setInferHints] = useState<string[]>([]);
 
   // 实时生成 spider
   const spiderResult = useMemo(() => {
@@ -102,7 +109,24 @@ export function SiteModelEditor({ onClose }: Props) {
     setModel(t);
     setJsonText(JSON.stringify(t, null, 2));
     setJsonError("");
+    setInferHints([]);
   }, []);
+
+  /** 从当前站抓包推理 SiteModel */
+  const doInfer = useCallback(() => {
+    if (!capturedXhrs?.length) {
+      alert("当前站还没抓到 XHR。先在页面上正常浏览（首页 / 分类 / 详情 / 播放）让插件抓包，再来推理。");
+      return;
+    }
+    const url = siteUrl || (capturedXhrs[0]?.pageURL) || "https://unknown.com";
+    const result = inferSiteModel(capturedXhrs, url);
+    setModel(result.model);
+    setJsonText(JSON.stringify(result.model, null, 2));
+    setJsonError("");
+    setInferHints(result.hints);
+    setCopiedMsg(`✨ 从 ${capturedXhrs.length} 条抓包推出 ${result.model.endpoints.length} 端点`);
+    setTimeout(() => setCopiedMsg(""), 3000);
+  }, [capturedXhrs, siteUrl]);
 
   const copyToClipboard = useCallback(async (text: string, msg = "已复制") => {
     try {
@@ -165,6 +189,14 @@ export function SiteModelEditor({ onClose }: Props) {
 
         {/* 工具条 */}
         <div style={toolbar}>
+          <button
+            onClick={doInfer}
+            disabled={!capturedXhrs?.length}
+            style={{ ...btnPrimary, background: capturedXhrs?.length ? "#059669" : "#9ca3af" }}
+            title={capturedXhrs?.length ? `从 ${capturedXhrs.length} 条抓包自动推理 SiteModel` : "还没有抓到 XHR"}
+          >
+            ✨ 从抓包推理 {capturedXhrs?.length ? `(${capturedXhrs.length})` : ""}
+          </button>
           <select onChange={(e) => loadTemplate(e.target.value)} style={select} defaultValue="">
             <option value="" disabled>加载模板...</option>
             <option value="aiyifan">爱壹帆 (aiyifan) — 双模签名 + bootstrap</option>
@@ -187,6 +219,16 @@ export function SiteModelEditor({ onClose }: Props) {
             💾 tvbox.json
           </button>
         </div>
+
+        {/* 推理提示条 */}
+        {inferHints.length > 0 && (
+          <div style={{ background: "#f0fdf4", borderBottom: "1px solid #86efac", padding: "8px 12px", fontSize: 11, color: "#166534" }}>
+            <b>💡 推理结果：</b>
+            {inferHints.map((h, i) => (
+              <div key={i} style={{ padding: "2px 0" }}>{h}</div>
+            ))}
+          </div>
+        )}
 
         <div style={contentArea}>
           {/* 左侧: 编辑区 */}
