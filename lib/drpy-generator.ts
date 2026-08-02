@@ -358,6 +358,15 @@ function shouldUseDirectPathStrategy(paths: string[]): boolean {
 
 // ==================== tvbox.json ====================
 
+/**
+ * ⚠️  重要坑位（请对照 docs/SPIDER-PITFALLS.md 阅读）
+ *
+ * flags 数组的语义: 这些 flag 需要走 parses 解析.
+ * 只填官方视频站方案 (youku/qq/iqiyi 等). 千万不要把 site 自己的 flag 塞进来,
+ * 否则 fongmi 会强制走 parses 流水线, 全失败后弹 "Unable to parse url".
+ *
+ * 如果你的 vod_play_from = 'aiyifan', flags 里就不能有 'aiyifan'.
+ */
 export function generateTVBoxJSON(input: GenerateInput, spiderURL: string): string {
   const cfg = {
     wallpaper: "https://picsum.photos/1920/1080",
@@ -385,6 +394,8 @@ export function generateTVBoxJSON(input: GenerateInput, spiderURL: string): stri
       { name: "Json并发", type: 2, url: "Parallel" },
       { name: "Json轮询", type: 2, url: "Sequence" },
     ],
+    // ⚠️  只放官方视频站方案. 不要放 site 自己的 flag!
+    // 参考 docs/SPIDER-PITFALLS.md P0
     flags: [
       "youku", "qq", "iqiyi", "qiyi", "letv", "sohu",
       "tudou", "pptv", "mgtv", "wasu", "bilibili", "renrenmi",
