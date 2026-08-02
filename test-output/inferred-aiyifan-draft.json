@@ -1,0 +1,146 @@
+{
+  "name": "wwwaiyifantv",
+  "display_name": "www.aiyifan.tv",
+  "site_url": "https://www.aiyifan.tv",
+  "bases": {
+    "api": "https://m10.aiyifan.tv",
+    "api2": "https://rankv21.aiyifan.tv"
+  },
+  "signing": {
+    "modes": [
+      {
+        "name": "timestamp-draft",
+        "vars": {
+          "pub": {
+            "kind": "timestamp"
+          },
+          "query_lower": {
+            "kind": "query_lower"
+          },
+          "pk": {
+            "kind": "literal",
+            "value": "PLEASE_FILL_KEY_TABLE_OR_LITERAL"
+          }
+        },
+        "formula": "{pub}&{query_lower}&{pk}",
+        "algorithm": "md5",
+        "attach": {
+          "vv": "{sign}",
+          "pub": "{pub}"
+        }
+      }
+    ],
+    "default_strategy": "auto"
+  },
+  "bootstrap": {
+    "endpoint": "config",
+    "extract": {
+      "publicKey": "data.info[0].pConfig.publicKey",
+      "privateKey": "data.info[0].pConfig.privateKey"
+    },
+    "transforms": [
+      {
+        "field": "privateKey",
+        "op": "as_array"
+      }
+    ]
+  },
+  "endpoints": [
+    {
+      "name": "config",
+      "base": "api",
+      "path": "v3/home/config",
+      "query": "cinema=1",
+      "sign_mode": "timestamp-draft"
+    },
+    {
+      "name": "home",
+      "base": "api",
+      "path": "v3/home/getAllVideo",
+      "query": "cinema=1&page=1&size=10&region=SG",
+      "sign_mode": "auto"
+    },
+    {
+      "name": "detail",
+      "base": "api",
+      "path": "v3/video/detail",
+      "query": "cinema=1&device=1&player=CkPlayer&tech=HLS&lang=cns&v=1&id={id}&region=SG",
+      "sign_mode": "auto",
+      "response": {
+        "item": {
+          "path": "info"
+        }
+      }
+    },
+    {
+      "name": "episodes",
+      "base": "api",
+      "path": "v3/video/languagesplaylist",
+      "query": "cinema=1&id=vEQ16j241LF&lsk=1&taxis=0&cid=0,1,4,137",
+      "sign_mode": "auto"
+    },
+    {
+      "name": "search",
+      "base": "api2",
+      "path": "v3/list/briefsearch",
+      "query": "tags=九门&orderby=4&page=1&size=20&desc=0&isserial=-1&istitle=true",
+      "sign_mode": "auto",
+      "response": {
+        "list": {
+          "path": ""
+        }
+      }
+    }
+  ],
+  "mappings": {
+    "vod_id": [
+      "id",
+      "contxt",
+      "key"
+    ],
+    "vod_name": [
+      "title"
+    ],
+    "vod_pic": [
+      "imgPath"
+    ],
+    "vod_year": [
+      "yearReport",
+      "add_date",
+      "post_Year",
+      "updateweekly"
+    ],
+    "vod_area": [
+      "regional"
+    ],
+    "vod_actor": [
+      "stars"
+    ],
+    "vod_director": [
+      "directors"
+    ],
+    "vod_content": [
+      "contxt"
+    ],
+    "vod_remarks": [
+      "updateweekly",
+      "commentStatus",
+      "likeStatus",
+      "lastName",
+      "score"
+    ],
+    "ep_name": [
+      "name",
+      "title"
+    ],
+    "ep_id": [
+      "key",
+      "id"
+    ]
+  },
+  "categories": [],
+  "paging": {
+    "strategy": "local",
+    "page_size": 30
+  }
+}

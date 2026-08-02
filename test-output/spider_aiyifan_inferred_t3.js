@@ -1,110 +1,311 @@
-/**
- * 通用 T3 Spider 生成器 — 输入 SiteModel，输出 FongMi 可用的 spider.js
- *
- * ## 设计原则
- * 1. **引擎在 spider 内部固定不变**: 签名/apiGet/pick 这些逻辑用 SiteModel 数据驱动
- * 2. **SiteModel 内联到 spider**: FongMi 拿到一个自包含的 JS 文件即可，
- *    不需要额外 YAML/JSON
- * 3. **生成的 spider 是**可**调试的**: 日志 [s2s] 前缀 + JSON 化的 site 定义
- *
- * ## 生成的 spider 结构
- * ```
- * // 元数据注释
- * import cheerio from cat.js
- *
- * var SITE = { ... };  // 内联的 SiteModel（JS 对象，非 YAML）
- * var HDR = {...};
- * var BOOTSTRAP_CACHE = null;
- *
- * // 引擎函数：signUrl / apiCall / pickResp / mapVod / ...
- *
- * // T3 接口: init/home/homeVod/category/detail/play/search
- *
- * export function __jsEvalReturn() { ... }
- * ```
- */
+// site2source-ext — 通用 SiteModel T3 spider
+// Generated: 2026-08-02T02:33:40.876Z
+// Site: www.aiyifan.tv (wwwaiyifantv)
+// URL: https://www.aiyifan.tv
+// 签名模式: timestamp / cert
+//
+// 这份 spider 是**引擎 + SiteModel 内联**的产物。改站点行为不用改代码，改 SiteModel。
+// 生成器在 lib/model-generator.ts。SiteModel 定义在 lib/site-model.ts。
 
-import type { SiteModel, Endpoint, ResponsePicker, FieldMappings, Category, SignMode } from "./site-model";
+import * as cheerio from 'assets://js/lib/cat.js';
 
-// ============ 主入口 ============
-
-export function generateT3SpiderFromModel(model: SiteModel): string {
-  validate(model);
-
-  const L: string[] = [];
-  L.push(header(model));
-  L.push(`import * as cheerio from 'assets://js/lib/cat.js';`);
-  L.push(``);
-  L.push(`// ====== SiteModel（内联）======`);
-  L.push(`var SITE = ${JSON.stringify(model, null, 2)};`);
-  L.push(``);
-  L.push(`var HDR = ${JSON.stringify(mergedHeaders(model), null, 2)};`);
-  L.push(``);
-  L.push(`// bootstrap 结果缓存（跨调用持久）`);
-  L.push(`var BOOT = null;`);
-  L.push(`// home 端点响应缓存（10 分钟）`);
-  L.push(`var HOME_CACHE = null;`);
-  L.push(`var HOME_AT = 0;`);
-  L.push(``);
-  L.push(engine());
-  L.push(``);
-  L.push(t3Api(model));
-  L.push(``);
-  L.push(exportFn());
-  return L.join("\n");
-}
-
-// ============ 校验 ============
-function validate(m: SiteModel) {
-  if (!m.name || !m.endpoints?.length) throw new Error("SiteModel 缺 name 或 endpoints");
-  if (!m.mappings?.vod_id || !m.mappings?.vod_name) throw new Error("SiteModel 缺 mappings.vod_id/vod_name");
-  const endpointNames = new Set(m.endpoints.map((e) => e.name));
-  for (const req of ["home", "detail", "play"] as const) {
-    if (!endpointNames.has(req)) console.warn(`[warn] SiteModel 缺 endpoint "${req}"`);
+// ====== SiteModel（内联）======
+var SITE = {
+  "name": "wwwaiyifantv",
+  "display_name": "www.aiyifan.tv",
+  "site_url": "https://www.aiyifan.tv",
+  "bases": {
+    "api": "https://m10.aiyifan.tv",
+    "api2": "https://rankv21.aiyifan.tv"
+  },
+  "signing": {
+    "default_strategy": "auto",
+    "modes": [
+      {
+        "name": "timestamp",
+        "vars": {
+          "pub": {
+            "kind": "timestamp"
+          },
+          "query_lower": {
+            "kind": "query_lower"
+          },
+          "pk": {
+            "kind": "key_table",
+            "table": [
+              "version001",
+              "vers1on001",
+              "vers1on00i",
+              "bersion001",
+              "vcrsion001",
+              "versi0n001",
+              "versio_001",
+              "version0o1"
+            ],
+            "index": "Number(pub) % 8"
+          }
+        },
+        "formula": "{pub}&{query_lower}&{pk}",
+        "algorithm": "md5",
+        "attach": {
+          "vv": "{sign}",
+          "pub": "{pub}"
+        }
+      },
+      {
+        "name": "cert",
+        "vars": {
+          "pub": {
+            "kind": "bootstrap",
+            "path": "publicKey"
+          },
+          "query_lower": {
+            "kind": "query_lower"
+          },
+          "pk": {
+            "kind": "bootstrap",
+            "path": "privateKey[0]"
+          }
+        },
+        "formula": "{pub}&{query_lower}&{pk}",
+        "algorithm": "md5",
+        "attach": {
+          "vv": "{sign}",
+          "pub": "{pub}"
+        }
+      }
+    ]
+  },
+  "bootstrap": {
+    "endpoint": "config",
+    "extract": {
+      "publicKey": "data.info[0].pConfig.publicKey",
+      "privateKey": "data.info[0].pConfig.privateKey"
+    },
+    "transforms": [
+      {
+        "field": "privateKey",
+        "op": "as_array"
+      }
+    ]
+  },
+  "endpoints": [
+    {
+      "name": "config",
+      "base": "api",
+      "path": "v3/home/config",
+      "query": "cinema=1",
+      "sign_mode": "timestamp"
+    },
+    {
+      "name": "home",
+      "base": "api",
+      "path": "v3/home/getAllVideo",
+      "query": "cinema=1&page=1&size=10&region=SG",
+      "sign_mode": "auto",
+      "response": {
+        "list": {
+          "path": ""
+        }
+      }
+    },
+    {
+      "name": "detail",
+      "base": "api",
+      "path": "v3/video/detail",
+      "query": "cinema=1&device=1&player=CkPlayer&tech=HLS&lang=cns&v=1&id=vEQ16j241LF&region=SG",
+      "sign_mode": "auto",
+      "response": {
+        "item": {
+          "path": "info"
+        }
+      }
+    },
+    {
+      "name": "episodes",
+      "base": "api",
+      "path": "v3/video/languagesplaylist",
+      "query": "cinema=1&id=vEQ16j241LF&lsk=1&taxis=0&cid=0,1,4,137",
+      "sign_mode": "auto",
+      "response": {
+        "episodes": {
+          "path": ""
+        }
+      }
+    },
+    {
+      "name": "search",
+      "base": "api2",
+      "path": "v3/list/briefsearch",
+      "query": "tags=九门&orderby=4&page=1&size=20&desc=0&isserial=-1&istitle=true",
+      "sign_mode": "auto",
+      "response": {
+        "list": {
+          "path": ""
+        }
+      }
+    },
+    {
+      "name": "play",
+      "base": "api",
+      "path": "v3/video/play",
+      "query": "cinema=1&id={id}&a=0&lang=none&usersign=1&region=SG&device=1&isMasterSupport=1",
+      "sign_mode": "cert",
+      "response": {
+        "play_url": {
+          "priority": [
+            {
+              "path": "info[0].clarity",
+              "first_where": "isEnabled=true",
+              "field": "path.result"
+            },
+            {
+              "path": "info[0].flvPathList",
+              "first_where": "isHls=true",
+              "field": "result"
+            },
+            {
+              "path": "info[0].hlsPathList",
+              "first_where": "isHls=true",
+              "field": "result"
+            }
+          ],
+          "exclude": [
+            {
+              "host_regex": "s1-a1\\.global-cdn\\.me"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "mappings": {
+    "vod_id": [
+      "key",
+      "id",
+      "id",
+      "key"
+    ],
+    "vod_name": [
+      "title",
+      "name",
+      "title"
+    ],
+    "vod_pic": [
+      "image",
+      "imgPath",
+      "imgPath"
+    ],
+    "vod_year": [
+      "year",
+      "post_Year",
+      "post_Year"
+    ],
+    "vod_area": [
+      "regional",
+      "regional"
+    ],
+    "vod_actor": [
+      "starring",
+      "stars",
+      "stars"
+    ],
+    "vod_director": [
+      "directed",
+      "directors",
+      "directors"
+    ],
+    "vod_content": [
+      "contxt",
+      "shortDes",
+      "contxt"
+    ],
+    "vod_remarks": [
+      "lastName",
+      "rating",
+      "score",
+      "lastName",
+      "score"
+    ],
+    "ep_name": [
+      "name",
+      "title"
+    ],
+    "ep_id": [
+      "key",
+      "id"
+    ]
+  },
+  "categories": [
+    {
+      "kind": "static",
+      "id": "filmList",
+      "name": "电影",
+      "source_field": "info[0].filmList"
+    },
+    {
+      "kind": "static",
+      "id": "tvList",
+      "name": "剧集",
+      "source_field": "info[0].tvList"
+    },
+    {
+      "kind": "static",
+      "id": "varietyList",
+      "name": "综艺",
+      "source_field": "info[0].varietyList"
+    },
+    {
+      "kind": "static",
+      "id": "animeList",
+      "name": "动漫",
+      "source_field": "info[0].animeList"
+    },
+    {
+      "kind": "static",
+      "id": "sportList",
+      "name": "体育",
+      "source_field": "info[0].sportList"
+    },
+    {
+      "kind": "static",
+      "id": "documentaryList",
+      "name": "纪录片",
+      "source_field": "info[0].documentaryList"
+    },
+    {
+      "kind": "static",
+      "id": "shortList",
+      "name": "短剧",
+      "source_field": "info[0].shortList"
+    }
+  ],
+  "paging": {
+    "strategy": "local",
+    "page_size": 30
   }
-  if (m.bootstrap && !endpointNames.has(m.bootstrap.endpoint)) {
-    throw new Error(`bootstrap.endpoint "${m.bootstrap.endpoint}" 未在 endpoints 定义`);
-  }
-}
+};
 
-// ============ 文件头注释 ============
-function header(m: SiteModel): string {
-  const modes = m.signing?.modes?.map((x) => x.name).join(" / ") || "无签名";
-  return [
-    `// site2source-ext — 通用 SiteModel T3 spider`,
-    `// Generated: ${new Date().toISOString()}`,
-    `// Site: ${m.display_name} (${m.name})`,
-    `// URL: ${m.site_url}`,
-    `// 签名模式: ${modes}`,
-    `//`,
-    `// 这份 spider 是**引擎 + SiteModel 内联**的产物。改站点行为不用改代码，改 SiteModel。`,
-    `// 生成器在 lib/model-generator.ts。SiteModel 定义在 lib/site-model.ts。`,
-    ``,
-  ].join("\n");
-}
+var HDR = {
+  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+  "Referer": "https://www.aiyifan.tv/",
+  "Origin": "https://www.aiyifan.tv",
+  "Accept": "application/json, text/plain, */*",
+  "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8"
+};
 
-// ============ 请求头 ============
-function mergedHeaders(m: SiteModel): Record<string, string> {
-  const defaultHdr: Record<string, string> = {
-    "User-Agent":
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
-    Referer: m.site_url.endsWith("/") ? m.site_url : m.site_url + "/",
-    Origin: m.site_url.replace(/\/$/, ""),
-    Accept: "application/json, text/plain, */*",
-    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-  };
-  return { ...defaultHdr, ...(m.headers || {}) };
-}
+// bootstrap 结果缓存（跨调用持久）
+var BOOT = null;
+// home 端点响应缓存（10 分钟）
+var HOME_CACHE = null;
+var HOME_AT = 0;
 
-// ============ 引擎代码（固定，不依赖具体 site）============
-function engine(): string {
-  return `
 // ---------- 引擎：JSONPath / cheerio / md5 都是 FongMi 提供 ----------
 
 /** 简易 JSONPath: "info[0].pConfig.publicKey" */
 function jpath(obj, path) {
   if (!path) return obj;
-  var parts = String(path).split(/[.\\[\\]]+/).filter(Boolean);
+  var parts = String(path).split(/[.\[\]]+/).filter(Boolean);
   var cur = obj;
   for (var i = 0; i < parts.length; i++) {
     if (cur == null) return null;
@@ -129,13 +330,13 @@ function pickField(obj, candidates) {
 /** 表达式对比: "isEnabled=true" or "path.result=xxx" */
 function matchCond(item, cond) {
   if (!cond) return true;
-  var m = String(cond).match(/^([\\w.\\[\\]]+)\\s*=\\s*(.+)$/);
+  var m = String(cond).match(/^([\w.\[\]]+)\s*=\s*(.+)$/);
   if (!m) return true;
   var lhs = jpath(item, m[1]);
   var rhs = m[2].trim();
   if (rhs === 'true') return lhs === true;
   if (rhs === 'false') return lhs === false;
-  if (/^-?\\d+$/.test(rhs)) return Number(lhs) === Number(rhs);
+  if (/^-?\d+$/.test(rhs)) return Number(lhs) === Number(rhs);
   return String(lhs) === rhs || String(lhs) === rhs.replace(/^["']|["']$/g, '');
 }
 
@@ -217,7 +418,7 @@ function applyAlg(alg, input, hmacKey) {
 }
 
 function renderTpl(tpl, vals) {
-  return String(tpl).replace(/\\{(\\w+)\\}/g, function (_, k) { return vals[k] == null ? '' : vals[k]; });
+  return String(tpl).replace(/\{(\w+)\}/g, function (_, k) { return vals[k] == null ? '' : vals[k]; });
 }
 
 /** 给 URL 附加签名 */
@@ -337,11 +538,11 @@ function bootIsValid(b) {
 
 // ---------- API 调用 ----------
 function fillTemplate(tpl, params) {
-  return String(tpl || '').replace(/\\{(\\w+)\\}/g, function (_, k) {
+  return String(tpl || '').replace(/\{(\w+)\}/g, function (_, k) {
     if (params[k] == null) return '';
     var v = String(params[k]);
     // 只 encode 会破坏 URL 语法的字符: 空格/#/? 等；保留逗号/斜杠/字母数字
-    return v.replace(/[\\s#?&+%]/g, function (c) { return encodeURIComponent(c); });
+    return v.replace(/[\s#?&+%]/g, function (c) { return encodeURIComponent(c); });
   });
 }
 
@@ -442,17 +643,12 @@ function joinIfArr(v) {
   if (Array.isArray(v)) return v.join(',');
   return v == null ? '' : String(v);
 }
-`.trimStart();
-}
 
-// ============ T3 接口 ============
-function t3Api(m: SiteModel): string {
-  const pageSize = m.paging?.page_size ?? 30;
-  return `
+
 // ---------- T3 接口 ----------
 
 function init(cfg) {
-  console.log('[s2s] init: ${m.name} (${m.display_name})');
+  console.log('[s2s] init: wwwaiyifantv (www.aiyifan.tv)');
   ensureBoot();
 }
 
@@ -491,7 +687,7 @@ function extractCategoryList(homeData, cat) {
 
 function category(tid, pg, filter, extend) {
   pg = Number(pg) || 1;
-  var PAGE = ${pageSize};
+  var PAGE = 30;
   var cat = null;
   for (var i = 0; i < SITE.categories.length; i++) if (SITE.categories[i].id === tid) cat = SITE.categories[i];
   if (!cat) return JSON.stringify({ list: [], page: pg, pagecount: 1, limit: PAGE, total: 0 });
@@ -588,7 +784,7 @@ function play(flag, id, flags) {
     }
   }
   if (url) {
-    console.log('[s2s] play 命中(' + (isHls ? 'HLS' : url.match(/\\.m3u8/) ? 'HLS' : 'MP4') + '): ' + url.substring(0, 80));
+    console.log('[s2s] play 命中(' + (isHls ? 'HLS' : url.match(/\.m3u8/) ? 'HLS' : 'MP4') + '): ' + url.substring(0, 80));
     var hdr = { 'User-Agent': HDR['User-Agent'], 'Referer': SITE.site_url + '/' };
     return JSON.stringify({ parse: 0, url: url, header: hdr });
   }
@@ -615,19 +811,14 @@ function search(wd, quick, pg) {
   return JSON.stringify({ list: list });
 }
 
-function isVideoFormat(url) { return /\\.(m3u8|mp4|flv|mkv|ts)(\\?|$)/i.test(url); }
+function isVideoFormat(url) { return /\.(m3u8|mp4|flv|mkv|ts)(\?|$)/i.test(url); }
 function manualVideoCheck() { return false; }
-`.trimStart();
-}
 
-function exportFn(): string {
-  return `
+
 export function __jsEvalReturn() {
   return {
     init: init, home: home, homeVod: homeVod, category: category,
     detail: detail, play: play, search: search,
     isVideoFormat: isVideoFormat, manualVideoCheck: manualVideoCheck,
   };
-}
-`.trimStart();
 }
