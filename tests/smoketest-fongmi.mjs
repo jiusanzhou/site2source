@@ -48,18 +48,27 @@ async function main() {
   const tvbox = path.join(OUT_DIR, "tvbox_aiyifan.json");
   if (!fs.existsSync(tvbox)) throw new Error(`missing ${tvbox}`);
 
-  // 1. http server
-  log(`starting http server on :${PORT}`);
-  const server = http.createServer((req, res) => {
-    const p = path.join(OUT_DIR, decodeURIComponent(req.url.split("?")[0]));
-    if (!p.startsWith(OUT_DIR) || !fs.existsSync(p)) { res.writeHead(404); return res.end(); }
-    res.writeHead(200, {
-      "content-type": req.url.endsWith(".json") ? "application/json" : "application/javascript",
-      "access-control-allow-origin": "*",
-    });
-    fs.createReadStream(p).pipe(res);
-  }).listen(PORT);
-  await new Promise((r) => server.once("listening", r));
+  // 1. http server — 检查 launchd 是否已在跑（im.zoe.s2s.devserver），有就复用
+  let server = null;
+  let existing = false;
+  try {
+    const r = await fetch(`http://127.0.0.1:${PORT}/tvbox_aiyifan.json`);
+    if (r.ok) { existing = true; log(`http server already running on :${PORT} (launchd), reusing`); }
+  } catch {}
+
+  if (!existing) {
+    log(`starting temporary http server on :${PORT}`);
+    server = http.createServer((req, res) => {
+      const p = path.join(OUT_DIR, decodeURIComponent(req.url.split("?")[0]));
+      if (!p.startsWith(OUT_DIR) || !fs.existsSync(p)) { res.writeHead(404); return res.end(); }
+      res.writeHead(200, {
+        "content-type": req.url.endsWith(".json") ? "application/json" : "application/javascript",
+        "access-control-allow-origin": "*",
+      });
+      fs.createReadStream(p).pipe(res);
+    }).listen(PORT);
+    await new Promise((r) => server.once("listening", r));
+  }
 
   try {
     // 2. restart fongmi
@@ -128,7 +137,7 @@ async function main() {
     console.log(`   ts count:  ${tsCount}`);
     process.exit(0);
   } finally {
-    server.close();
+    if (server) server.close();
   }
 }
 
