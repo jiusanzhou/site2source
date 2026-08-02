@@ -123,10 +123,15 @@ async function main() {
     const fullUrl = fullMatch ? fullMatch[1] : playUrl;
     let tsCount = 0;
     for (let i = 0; i < 5; i++) {
-      const chunklist = sh(`curl -s -H "User-Agent: Mozilla/5.0" -H "Referer: https://www.aiyifan.tv/" "${fullUrl}"`);
+      const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
+      const cmd = `curl -s -w "\\n__CODE__:%{http_code}" -H 'User-Agent: ${UA}' -H 'Referer: https://www.aiyifan.tv/' '${fullUrl}'`;
+      const raw = sh(cmd);
+      const codeMatch = raw.match(/__CODE__:(\d+)$/);
+      const httpCode = codeMatch ? codeMatch[1] : "??";
+      const chunklist = raw.replace(/__CODE__:\d+$/, "");
       tsCount = (chunklist.match(/\.ts/g) || []).length;
       if (tsCount >= 10) break;
-      log(`  attempt ${i + 1}: ${tsCount} ts (CDN warming), retry in 1s`);
+      log(`  attempt ${i + 1}: HTTP ${httpCode}, ${tsCount} ts (CDN warming), retry in 1s`);
       await sleep(1000);
     }
     if (tsCount < 10) throw new Error(`chunklist has only ${tsCount} ts segments (expect > 10)`);
