@@ -1,0 +1,38 @@
+{
+  "spider": "",
+  "sites": [
+    {
+      "key": "aiyifan_api",
+      "name": "爱壹帆(API)",
+      "type": 3,
+      "api": "./spider.js",
+      "searchable": 1,
+      "quickSearch": 1,
+      "filterable": 0
+    }
+  ],
+  "parses": [
+    {
+      "name": "Web",
+      "type": 3,
+      "url": "Web"
+    }
+  ],
+  "flags": [
+    "aiyifan",
+    "youku",
+    "qq",
+    "iqiyi",
+    "qiyi",
+    "letv",
+    "sohu",
+    "tudou",
+    "pptv",
+    "mgtv",
+    "wasu",
+    "bilibili",
+    "renrenmi"
+  ],
+  "ijk": [],
+  "ads": []
+}

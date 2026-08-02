@@ -1,5 +1,5 @@
 // site2source-ext — aiyifan API 型 T3 spider
-// Generated: 2026-08-01T22:41:14.094Z
+// Generated: 2026-08-02T06:48:29.092Z
 //
 // 完整签名双模:
 //   1. timestamp: pub=Date.now(), pk=PKS_TS[pub%8], vv=md5(pub+'&'+q+'&'+pk)
@@ -277,6 +277,18 @@ function play(flag, id, flags) {
   }
   if (url) {
     console.log('[s2s] play 命中(' + (isHls ? 'HLS' : 'MP4') + '): ' + url.substring(0, 80));
+    // Warmup: CDN 边缘首次冷启动可能 520, 预热一次让 ExoPlayer 拿到 200
+    if (isHls) {
+      try {
+        var warmHdr = { 'User-Agent': HDR['User-Agent'], 'Referer': SITE + '/' };
+        for (var w = 0; w < 3; w++) {
+          var wr = req(url, { headers: warmHdr });
+          var wc = (wr && (wr.code || wr.status)) || 0;
+          console.log('[s2s] warmup ' + (w+1) + ': HTTP ' + wc);
+          if (wc >= 200 && wc < 400) break;
+        }
+      } catch (e) { console.log('[s2s] warmup skip: ' + e); }
+    }
     return JSON.stringify({
       parse: 0, url: url,
       header: { 'User-Agent': HDR['User-Agent'], 'Referer': SITE + '/' },

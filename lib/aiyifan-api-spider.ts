@@ -368,6 +368,18 @@ export function generateAiyifanT3Spider(): string {
   L.push(`  }`);
   L.push(`  if (url) {`);
   L.push(`    console.log('[s2s] play 命中(' + (isHls ? 'HLS' : 'MP4') + '): ' + url.substring(0, 80));`);
+  L.push(`    // Warmup: CDN 边缘首次冷启动可能 520, 预热一次让 ExoPlayer 拿到 200`);
+  L.push(`    if (isHls) {`);
+  L.push(`      try {`);
+  L.push(`        var warmHdr = { 'User-Agent': HDR['User-Agent'], 'Referer': SITE + '/' };`);
+  L.push(`        for (var w = 0; w < 3; w++) {`);
+  L.push(`          var wr = req(url, { headers: warmHdr });`);
+  L.push(`          var wc = (wr && (wr.code || wr.status)) || 0;`);
+  L.push(`          console.log('[s2s] warmup ' + (w+1) + ': HTTP ' + wc);`);
+  L.push(`          if (wc >= 200 && wc < 400) break;`);
+  L.push(`        }`);
+  L.push(`      } catch (e) { console.log('[s2s] warmup skip: ' + e); }`);
+  L.push(`    }`);
   L.push(`    return JSON.stringify({`);
   L.push(`      parse: 0, url: url,`);
   L.push(`      header: { 'User-Agent': HDR['User-Agent'], 'Referer': SITE + '/' },`);

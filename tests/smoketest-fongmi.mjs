@@ -116,13 +116,19 @@ async function main() {
     if (!playUrl) throw new Error("spider did not resolve a play URL in 30s");
     log(`✅ play URL: ${playUrl.slice(0, 80)}...`);
 
-    // 7. verify chunklist
-    log("verifying HLS chunklist");
+    // 7. verify chunklist (等 spider warmup 完再拉, CDN 冷启动首次会 520)
+    log("verifying HLS chunklist (with warmup wait)");
     const playerLog = adb('logcat -d -s "TV-player:*"');
     const fullMatch = playerLog.match(/"url":"([^"]+)"/);
     const fullUrl = fullMatch ? fullMatch[1] : playUrl;
-    const chunklist = sh(`curl -s -H "User-Agent: Mozilla/5.0" -H "Referer: https://www.aiyifan.tv/" "${fullUrl}"`);
-    const tsCount = (chunklist.match(/\.ts/g) || []).length;
+    let tsCount = 0;
+    for (let i = 0; i < 5; i++) {
+      const chunklist = sh(`curl -s -H "User-Agent: Mozilla/5.0" -H "Referer: https://www.aiyifan.tv/" "${fullUrl}"`);
+      tsCount = (chunklist.match(/\.ts/g) || []).length;
+      if (tsCount >= 10) break;
+      log(`  attempt ${i + 1}: ${tsCount} ts (CDN warming), retry in 1s`);
+      await sleep(1000);
+    }
     if (tsCount < 10) throw new Error(`chunklist has only ${tsCount} ts segments (expect > 10)`);
     log(`✅ chunklist OK: ${tsCount} ts segments`);
 
