@@ -68,15 +68,15 @@
  *   错误消息有时报"用户签名错误"（会误导）→ 保留嗅探降级
  */
 
-/** 栏目字段 → 中文分类名 */
-export const AIYIFAN_CATEGORIES: { field: string; name: string }[] = [
-  { field: "filmList", name: "电影" },
-  { field: "tvList", name: "剧集" },
-  { field: "varietyList", name: "综艺" },
-  { field: "animeList", name: "动漫" },
-  { field: "shortList", name: "短剧" },
-  { field: "documentaryList", name: "纪录片" },
-  { field: "sportList", name: "体育" },
+/** 栏目字段 → 中文分类名（cid = 走 list/Search 支持真正翻页） */
+export const AIYIFAN_CATEGORIES: { field: string; name: string; cid: string }[] = [
+  { field: "filmList", name: "电影", cid: "0,1,3" },
+  { field: "tvList", name: "剧集", cid: "0,1,4" },
+  { field: "varietyList", name: "综艺", cid: "0,1,5" },
+  { field: "animeList", name: "动漫", cid: "0,1,6" },
+  { field: "shortList", name: "短剧", cid: "0,1,8" },
+  { field: "documentaryList", name: "纪录片", cid: "0,1,7" },
+  { field: "sportList", name: "体育", cid: "0,1,9" },
 ];
 
 /** 生成 aiyifan 专用 T3 spider（API 型，全走签名 API） */
@@ -116,7 +116,7 @@ export function generateAiyifanT3Spider(): string {
   L.push(``);
   L.push(`var CATS = [`);
   for (const c of AIYIFAN_CATEGORIES) {
-    L.push(`  { id: '${c.field}', name: '${c.name}' },`);
+    L.push(`  { id: '${c.field}', name: '${c.name}', cid: '${c.cid}' },`);
   }
   L.push(`];`);
   L.push(``);
@@ -249,13 +249,32 @@ export function generateAiyifanT3Spider(): string {
   L.push(`function category(tid, pg, filter, extend) {`);
   L.push(`  if (!pg) pg = 1;`);
   L.push(`  var PAGE = 30;`);
-  L.push(`  var agg = loadAll();`);
-  L.push(`  var all = (agg && agg[tid]) ? agg[tid] : [];`);
-  L.push(`  var start = (pg - 1) * PAGE;`);
-  L.push(`  var list = all.slice(start, start + PAGE).map(toVod);`);
-  L.push(`  var pagecount = Math.max(1, Math.ceil(all.length / PAGE));`);
+  L.push(`  // 找到 CATS 里对应的 cid`);
+  L.push(`  var cid = '';`);
+  L.push(`  for (var i = 0; i < CATS.length; i++) {`);
+  L.push(`    if (CATS[i].id === tid) { cid = CATS[i].cid; break; }`);
+  L.push(`  }`);
+  L.push(`  if (!cid) {`);
+  L.push(`    // 未知 tid → 回退到聚合缓存分页`);
+  L.push(`    var agg0 = loadAll();`);
+  L.push(`    var all0 = (agg0 && agg0[tid]) ? agg0[tid] : [];`);
+  L.push(`    var st = (pg - 1) * PAGE;`);
+  L.push(`    return JSON.stringify({ list: all0.slice(st, st+PAGE).map(toVod), page: pg, pagecount: Math.max(1, Math.ceil(all0.length/PAGE)), limit: PAGE, total: all0.length });`);
+  L.push(`  }`);
+  L.push(`  // list/Search 支持真正翻页`);
+  L.push(`  var q = 'cinema=1&page=' + pg + '&size=' + PAGE +`);
+  L.push(`    '&orderby=0&desc=1&cid=' + cid + '&isserial=-1&isIndex=-1&isfree=-1';`);
+  L.push(`  var info = apiGet(API, 'api/list/Search', q);`);
+  L.push(`  var list = [];`);
+  L.push(`  var total = 0;`);
+  L.push(`  var maxpage = 1;`);
+  L.push(`  if (info && info[0]) {`);
+  L.push(`    list = (info[0].result || []).map(toVod);`);
+  L.push(`    total = info[0].recordcount || list.length;`);
+  L.push(`    maxpage = info[0].maxpage || Math.max(1, Math.ceil(total / PAGE));`);
+  L.push(`  }`);
   L.push(`  return JSON.stringify({`);
-  L.push(`    list: list, page: pg, pagecount: pagecount, limit: PAGE, total: all.length,`);
+  L.push(`    list: list, page: pg, pagecount: maxpage, limit: PAGE, total: total,`);
   L.push(`  });`);
   L.push(`}`);
   L.push(``);
@@ -268,8 +287,8 @@ export function generateAiyifanT3Spider(): string {
   L.push(`  var dInfo = apiGet(API, 'v3/video/detail', detailQ);`);
   L.push(`  if (dInfo && dInfo[0]) {`);
   L.push(`    meta = dInfo[0];`);
-  L.push(`    // cidMapper 是"悬疑,历险"这种; publishNavKey 才是原始 cid 路径 (如 "0,1,4,137")`);
-  L.push(`    var cid = meta.publishNavKey || '0,1,4';`);
+  L.push(`    // cid 是 "0,1,4,137" 这种真实路径, publishNavKey 是 "今年" 这种标签, 用 cid`);
+  L.push(`    var cid = meta.cid || '0,1,4';`);
   L.push(`    DETAIL_CACHE[id] = { cid: cid, meta: meta };`);
   L.push(`  } else {`);
   L.push(`    // detail 失败: 用聚合缓存兜底`);
@@ -286,7 +305,7 @@ export function generateAiyifanT3Spider(): string {
   L.push(``);
   L.push(`  // 2. 拉剧集列表`);
   L.push(`  var epList = [];`);
-  L.push(`  var cidForEp = (DETAIL_CACHE[id] && DETAIL_CACHE[id].cid) || (meta && meta.publishNavKey) || '0,1,4';`);
+  L.push(`  var cidForEp = (DETAIL_CACHE[id] && DETAIL_CACHE[id].cid) || (meta && meta.cid) || '0,1,4';`);
   L.push(`  var lplQ = 'cinema=1&vid=' + id + '&lsk=1&taxis=0&cid=' + cidForEp;`);
   L.push(`  var lplInfo = apiGet(API, 'v3/video/languagesplaylist', lplQ);`);
   L.push(`  if (lplInfo && lplInfo[0] && lplInfo[0].playList) {`);

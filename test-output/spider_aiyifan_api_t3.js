@@ -1,5 +1,5 @@
 // site2source-ext — aiyifan API 型 T3 spider
-// Generated: 2026-08-02T06:48:29.092Z
+// Generated: 2026-08-02T07:23:59.623Z
 //
 // 完整签名双模:
 //   1. timestamp: pub=Date.now(), pk=PKS_TS[pub%8], vv=md5(pub+'&'+q+'&'+pk)
@@ -30,13 +30,13 @@ var HDR = {
 };
 
 var CATS = [
-  { id: 'filmList', name: '电影' },
-  { id: 'tvList', name: '剧集' },
-  { id: 'varietyList', name: '综艺' },
-  { id: 'animeList', name: '动漫' },
-  { id: 'shortList', name: '短剧' },
-  { id: 'documentaryList', name: '纪录片' },
-  { id: 'sportList', name: '体育' },
+  { id: 'filmList', name: '电影', cid: '0,1,3' },
+  { id: 'tvList', name: '剧集', cid: '0,1,4' },
+  { id: 'varietyList', name: '综艺', cid: '0,1,5' },
+  { id: 'animeList', name: '动漫', cid: '0,1,6' },
+  { id: 'shortList', name: '短剧', cid: '0,1,8' },
+  { id: 'documentaryList', name: '纪录片', cid: '0,1,7' },
+  { id: 'sportList', name: '体育', cid: '0,1,9' },
 ];
 
 // pConfig 缓存: 首次 bootstrap 后长期有效
@@ -163,13 +163,32 @@ function loadAll() {
 function category(tid, pg, filter, extend) {
   if (!pg) pg = 1;
   var PAGE = 30;
-  var agg = loadAll();
-  var all = (agg && agg[tid]) ? agg[tid] : [];
-  var start = (pg - 1) * PAGE;
-  var list = all.slice(start, start + PAGE).map(toVod);
-  var pagecount = Math.max(1, Math.ceil(all.length / PAGE));
+  // 找到 CATS 里对应的 cid
+  var cid = '';
+  for (var i = 0; i < CATS.length; i++) {
+    if (CATS[i].id === tid) { cid = CATS[i].cid; break; }
+  }
+  if (!cid) {
+    // 未知 tid → 回退到聚合缓存分页
+    var agg0 = loadAll();
+    var all0 = (agg0 && agg0[tid]) ? agg0[tid] : [];
+    var st = (pg - 1) * PAGE;
+    return JSON.stringify({ list: all0.slice(st, st+PAGE).map(toVod), page: pg, pagecount: Math.max(1, Math.ceil(all0.length/PAGE)), limit: PAGE, total: all0.length });
+  }
+  // list/Search 支持真正翻页
+  var q = 'cinema=1&page=' + pg + '&size=' + PAGE +
+    '&orderby=0&desc=1&cid=' + cid + '&isserial=-1&isIndex=-1&isfree=-1';
+  var info = apiGet(API, 'api/list/Search', q);
+  var list = [];
+  var total = 0;
+  var maxpage = 1;
+  if (info && info[0]) {
+    list = (info[0].result || []).map(toVod);
+    total = info[0].recordcount || list.length;
+    maxpage = info[0].maxpage || Math.max(1, Math.ceil(total / PAGE));
+  }
   return JSON.stringify({
-    list: list, page: pg, pagecount: pagecount, limit: PAGE, total: all.length,
+    list: list, page: pg, pagecount: maxpage, limit: PAGE, total: total,
   });
 }
 
@@ -180,8 +199,8 @@ function detail(id) {
   var dInfo = apiGet(API, 'v3/video/detail', detailQ);
   if (dInfo && dInfo[0]) {
     meta = dInfo[0];
-    // cidMapper 是"悬疑,历险"这种; publishNavKey 才是原始 cid 路径 (如 "0,1,4,137")
-    var cid = meta.publishNavKey || '0,1,4';
+    // cid 是 "0,1,4,137" 这种真实路径, publishNavKey 是 "今年" 这种标签, 用 cid
+    var cid = meta.cid || '0,1,4';
     DETAIL_CACHE[id] = { cid: cid, meta: meta };
   } else {
     // detail 失败: 用聚合缓存兜底
@@ -198,7 +217,7 @@ function detail(id) {
 
   // 2. 拉剧集列表
   var epList = [];
-  var cidForEp = (DETAIL_CACHE[id] && DETAIL_CACHE[id].cid) || (meta && meta.publishNavKey) || '0,1,4';
+  var cidForEp = (DETAIL_CACHE[id] && DETAIL_CACHE[id].cid) || (meta && meta.cid) || '0,1,4';
   var lplQ = 'cinema=1&vid=' + id + '&lsk=1&taxis=0&cid=' + cidForEp;
   var lplInfo = apiGet(API, 'v3/video/languagesplaylist', lplQ);
   if (lplInfo && lplInfo[0] && lplInfo[0].playList) {
