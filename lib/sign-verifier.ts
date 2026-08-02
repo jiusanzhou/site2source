@@ -18,7 +18,7 @@
  * 4. 帮你定位 bug（哪些 pub % N 值都失败 → 密钥表缺）
  */
 
-import crypto from "crypto";
+import { md5 } from "./hash";
 import type { SignMode, SignAlgorithm, SignVarSource } from "./site-model";
 
 // ============ 类型 ============
@@ -169,14 +169,11 @@ function renderTemplate(tpl: string, vals: Record<string, string>): string {
 function applyAlgorithm(alg: SignAlgorithm, input: string, hmacKey?: string): string {
   switch (alg) {
     case "md5":
-      return crypto.createHash("md5").update(input, "utf8").digest("hex");
+      return md5(input);
     case "sha1":
-      return crypto.createHash("sha1").update(input, "utf8").digest("hex");
     case "sha256":
-      return crypto.createHash("sha256").update(input, "utf8").digest("hex");
     case "hmac-sha256":
-      if (!hmacKey) throw new Error("hmac-sha256 需要 hmac_key");
-      return crypto.createHmac("sha256", hmacKey).update(input, "utf8").digest("hex");
+      throw new Error(`算法 ${alg} 暂未实现 (欢迎 PR)`);
     case "none":
       return input;
   }

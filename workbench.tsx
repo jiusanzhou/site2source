@@ -62,6 +62,7 @@ import { RoleCard, type RoleStatus } from "~popup/role-card";
 import { ActionBar } from "~popup/action-bar";
 import { PreviewDrawer, type PreviewArtifact } from "~popup/preview-drawer";
 import { URLTemplateEditor, type TemplateConfig } from "~popup/url-template-editor";
+import { SiteModelEditor } from "./sitemodel/editor";
 import "./popup.css";
 
 // ==================== helpers ====================
@@ -126,6 +127,7 @@ export function Workbench() {
   const [showSettings, setShowSettings] = useState(false);
   const [showProjects, setShowProjects] = useState(false);
   const [showApi, setShowApi] = useState(false);
+  const [showSiteModel, setShowSiteModel] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [templateEditor, setTemplateEditor] = useState<{
     initial: TemplateConfig;
@@ -645,6 +647,13 @@ export function Workbench() {
         </button>
         <button
           className="s2s-btn-mini"
+          onClick={() => setShowSiteModel(true)}
+          title="SiteModel 编辑器 — SPA+签名站的 spider 生成"
+        >
+          🧬
+        </button>
+        <button
+          className="s2s-btn-mini"
           onClick={() => {
             loadProjects();
             setShowProjects(true);
@@ -1089,6 +1098,7 @@ export function Workbench() {
       {/* ==================== 模态 ==================== */}
 
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
+      {showSiteModel && <SiteModelEditor onClose={() => setShowSiteModel(false)} />}
       {showProjects && (
         <ProjectsPanel
           projects={projects}
