@@ -1,41 +1,22 @@
 {
-  "name": "site2source-ext",
-  "displayName": "Site2Source - TVBox 源生成器",
-  "version": "0.1.0",
-  "description": "在任意影视网站上一键生成 TVBox / FongMi 可用的 Drpy 爬虫。",
+  "name": "site2source",
+  "version": "0.2.0",
+  "private": true,
+  "description": "把任意影视站点转换为 TVBox/FongMi 可用的源",
   "author": "jiusanzhou",
+  "license": "MIT",
   "scripts": {
-    "dev": "plasmo dev",
-    "build": "plasmo build",
-    "package": "plasmo package",
-    "test": "node tests/e2e-smoke.mjs"
-  },
-  "dependencies": {
-    "plasmo": "0.90.5",
-    "react": "18.3.1",
-    "react-dom": "18.3.1"
+    "gen:aiyifan": "tsx packages/core/scripts/gen-tvbox.ts",
+    "test:proxy": "tsx tests/test-proxy-e2e.ts",
+    "test:model": "tsx tests/test-model-aiyifan.ts",
+    "test:inferrer": "tsx tests/test-inferrer.ts",
+    "ext:dev": "pnpm --filter @site2source/extension dev",
+    "ext:build": "pnpm --filter @site2source/extension build"
   },
   "devDependencies": {
-    "@types/chrome": "0.0.278",
     "@types/node": "22.10.2",
-    "@types/react": "18.3.18",
-    "@types/react-dom": "18.3.5",
     "prettier": "3.4.2",
+    "tsx": "^4.19.2",
     "typescript": "5.7.2"
-  },
-  "manifest": {
-    "name": "Site2Source",
-    "permissions": [
-      "activeTab",
-      "storage",
-      "webRequest",
-      "webNavigation",
-      "scripting",
-      "tabs",
-      "sidePanel"
-    ],
-    "host_permissions": [
-      "<all_urls>"
-    ]
   }
 }

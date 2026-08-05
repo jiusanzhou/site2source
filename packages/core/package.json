@@ -1,0 +1,17 @@
+{
+  "name": "@site2source/core",
+  "version": "0.2.0",
+  "description": "SiteModel + spider 生成器 + 站点推理器",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./site-model": "./src/site-model.ts",
+    "./generators/t3-spider": "./src/generators/t3-spider.ts",
+    "./generators/drpy": "./src/generators/drpy.ts",
+    "./inferrer": "./src/inferrer/model.ts",
+    "./sites/aiyifan": "./src/sites/aiyifan.ts",
+    "./util/*": "./src/util/*.ts"
+  }
+}

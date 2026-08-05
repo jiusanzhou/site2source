@@ -1,0 +1,36 @@
+{
+  "name": "@site2source/extension",
+  "displayName": "Site2Source - TVBox 源生成器",
+  "version": "0.2.0",
+  "description": "在任意影视网站上一键生成 TVBox / FongMi 可用的爬虫。",
+  "author": "jiusanzhou",
+  "scripts": {
+    "dev": "plasmo dev",
+    "build": "plasmo build",
+    "package": "plasmo package"
+  },
+  "dependencies": {
+    "@site2source/core": "workspace:*",
+    "plasmo": "0.90.5",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.0.278",
+    "@types/react": "18.3.18",
+    "@types/react-dom": "18.3.5"
+  },
+  "manifest": {
+    "name": "Site2Source",
+    "permissions": [
+      "activeTab",
+      "storage",
+      "webRequest",
+      "webNavigation",
+      "scripting",
+      "tabs",
+      "sidePanel"
+    ],
+    "host_permissions": ["<all_urls>"]
+  }
+}
