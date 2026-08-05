@@ -2,6 +2,10 @@ node_modules/
 build/
 .plasmo/
 .env*.local
+.env
 *.log
 .DS_Store
 dist/
+# spider 里含 proxy secret，不进 git
+test-output/spider_aiyifan_model_t3.js
+test-output/tvbox_aiyifan_model.json

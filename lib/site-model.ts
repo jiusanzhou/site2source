@@ -179,6 +179,46 @@ export type Category =
   | { kind: "static"; id: string; name: string; source_field: string /* 从 home 响应哪个字段取 */ }
   | { kind: "endpoint"; id: string; name: string; endpoint: string /* 用哪个端点 */; params?: Record<string, string> };
 
+// ============ Proxy（可选，用于 GEO block 场景）============
+/**
+ * 全站请求代理 —— 让所有 API 请求走一个中转 URL。
+ *
+ * 典型场景: aiyifan 被 Cloudflare GEO block 挡住国内 IP，
+ * 用 CF Pages/Worker 部署的通用 HTTP 代理转发（cf-proxy 项目）绕过。
+ *
+ * 例:
+ *   proxy: {
+ *     base: "https://notes-edge.pages.dev",
+ *     mode: "query",
+ *     headers: { Authorization: "Bearer xxx" },
+ *   }
+ *   → 原 https://m10.aiyifan.tv/v3/xxx?a=1
+ *     实 https://notes-edge.pages.dev/?url=https%3A%2F%2Fm10.aiyifan.tv%2Fv3%2Fxxx%3Fa%3D1
+ */
+export interface ProxyConfig {
+  /** 代理服务的 base URL（无尾斜杠）*/
+  base: string;
+  /**
+   * URL 传递方式：
+   * - "query": ?url=<encoded>（cf-proxy 兼容，推荐）
+   * - "path":  /<url without scheme>（cf-proxy 也支持，某些代理只认这个）
+   */
+  mode?: "query" | "path";
+  /** 鉴权/额外 header（如 Authorization: Bearer xxx）*/
+  headers?: Record<string, string>;
+  /**
+   * 只代理这些 base（对应 SiteModel.bases 的 key）。
+   * 空/未指定 = 全部代理。
+   * 例: only: ["api"] 只代理主 API，不代理 CDN
+   */
+  only?: string[];
+  /**
+   * 是否也代理播放流（m3u8/mp4）。默认 false。
+   * 注意: 播流量大，可能超 CF 免费额度或触发反爬；默认关。
+   */
+  proxy_media?: boolean;
+}
+
 // ============ SiteModel 主文档 ============
 export interface SiteModel {
   /** 站点名（用作 spider 文件名前缀）*/
@@ -220,6 +260,9 @@ export interface SiteModel {
     strategy: "server" | "local";
     page_size?: number;
   };
+
+  /** 请求代理（GEO block 绕过用，可选）*/
+  proxy?: ProxyConfig;
 }
 
 // ============ Runtime 传参 ============

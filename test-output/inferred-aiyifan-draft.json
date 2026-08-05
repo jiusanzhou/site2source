@@ -95,37 +95,45 @@
   "mappings": {
     "vod_id": [
       "id",
-      "contxt",
+      "key",
+      "id",
       "key"
     ],
     "vod_name": [
+      "title",
       "title"
     ],
     "vod_pic": [
+      "imgPath",
       "imgPath"
     ],
     "vod_year": [
-      "yearReport",
-      "add_date",
       "post_Year",
-      "updateweekly"
+      "post_Year"
     ],
     "vod_area": [
+      "regional",
       "regional"
     ],
     "vod_actor": [
+      "stars",
+      "starring",
       "stars"
     ],
     "vod_director": [
+      "directors",
+      "directed",
       "directors"
     ],
     "vod_content": [
+      "contxt",
+      "shortDes",
       "contxt"
     ],
     "vod_remarks": [
-      "updateweekly",
-      "commentStatus",
-      "likeStatus",
+      "lastName",
+      "score",
+      "rating",
       "lastName",
       "score"
     ],

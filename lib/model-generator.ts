@@ -179,6 +179,44 @@ function isExcluded(url, rules) {
   return false;
 }
 
+// ---------- Proxy 包装（GEO block 绕过用）----------
+
+/**
+ * 把 rawUrl 包装成经过 SITE.proxy 转发的 URL；
+ * 同时把 proxy.headers（如 Authorization）合并进 hdr。
+ * 无 proxy 或不适用时透传。
+ */
+function wrapProxy(rawUrl, epBaseKey, hdr) {
+  if (!SITE.proxy || !SITE.proxy.base) return { url: rawUrl, hdr: hdr };
+  if (SITE.proxy.only && SITE.proxy.only.length && SITE.proxy.only.indexOf(epBaseKey) < 0) return { url: rawUrl, hdr: hdr };
+  var pmode = SITE.proxy.mode || 'query';
+  var pbase = String(SITE.proxy.base).replace(/\\/$/, '');
+  var proxied;
+  if (pmode === 'path') {
+    proxied = pbase + '/' + rawUrl.replace(/^https?:\\/\\//, '');
+  } else {
+    proxied = pbase + '/?url=' + encodeURIComponent(rawUrl);
+  }
+  var newHdr = {}; for (var k in hdr) newHdr[k] = hdr[k];
+  if (SITE.proxy.headers) for (var k2 in SITE.proxy.headers) newHdr[k2] = SITE.proxy.headers[k2];
+  return { url: proxied, hdr: newHdr };
+}
+
+/** 单独给媒体 URL (m3u8/mp4) 用的 proxy 包装；受 proxy_media 开关控制 */
+function wrapMediaUrl(mediaUrl) {
+  if (!SITE.proxy || !SITE.proxy.proxy_media) return { url: mediaUrl, hdr: null };
+  var pmode = SITE.proxy.mode || 'query';
+  var pbase = String(SITE.proxy.base).replace(/\\/$/, '');
+  var proxied;
+  if (pmode === 'path') {
+    proxied = pbase + '/' + mediaUrl.replace(/^https?:\\/\\//, '');
+  } else {
+    proxied = pbase + '/?url=' + encodeURIComponent(mediaUrl);
+  }
+  var hdr = SITE.proxy.headers ? Object.assign({}, SITE.proxy.headers) : null;
+  return { url: proxied, hdr: hdr };
+}
+
 // ---------- 签名 ----------
 
 /** 从 SignVarSource 算值（运行时） */
@@ -365,6 +403,9 @@ function callEndpointRaw(endpoint, params) {
   }
   var hdr = HDR;
   if (endpoint.headers) { hdr = {}; for (var k in HDR) hdr[k] = HDR[k]; for (var k2 in endpoint.headers) hdr[k2] = endpoint.headers[k2]; }
+  // 应用 proxy（GEO block 绕过）
+  var wrapped = wrapProxy(url, endpoint.base, hdr);
+  url = wrapped.url; hdr = wrapped.hdr;
   var opt = { headers: hdr };
   if (endpoint.method === 'POST') { opt.method = 'POST'; opt.body = fillTemplate(endpoint.body || '', params); }
   try {
@@ -590,6 +631,13 @@ function play(flag, id, flags) {
   if (url) {
     console.log('[s2s] play 命中(' + (isHls ? 'HLS' : url.match(/\\.m3u8/) ? 'HLS' : 'MP4') + '): ' + url.substring(0, 80));
     var hdr = { 'User-Agent': HDR['User-Agent'], 'Referer': SITE.site_url + '/' };
+    // 播流是否也走 proxy（受 SITE.proxy.proxy_media 控制）
+    var wrappedMedia = wrapMediaUrl(url);
+    if (wrappedMedia.url !== url) {
+      console.log('[s2s] play 走 proxy: ' + wrappedMedia.url.substring(0, 80));
+      url = wrappedMedia.url;
+      if (wrappedMedia.hdr) for (var mk in wrappedMedia.hdr) hdr[mk] = wrappedMedia.hdr[mk];
+    }
     return JSON.stringify({ parse: 0, url: url, header: hdr });
   }
   // 兜底嗅探
