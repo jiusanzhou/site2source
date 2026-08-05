@@ -1,10 +1,30 @@
 // tvbox config 指向新 spider
+//
+// 用法（挂 cf-proxy 版本）:
+//   node --env-file=.env node_modules/.bin/tsx tests/gen-model-tvbox.ts
+// 或（无 proxy 版本，海外环境）:
+//   npx tsx tests/gen-model-tvbox.ts
 import fs from "fs";
 import path from "path";
-import { AIYIFAN_MODEL } from "../lib/sites/aiyifan";
+import { makeAiyifanModel } from "../lib/sites/aiyifan";
 import { generateT3SpiderFromModel } from "../lib/model-generator";
 
-const src = generateT3SpiderFromModel(AIYIFAN_MODEL);
+// 手动读 .env（避免装 dotenv）
+try {
+  const envPath = path.resolve(__dirname, "../.env");
+  if (fs.existsSync(envPath)) {
+    for (const line of fs.readFileSync(envPath, "utf8").split(/\r?\n/)) {
+      const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$/);
+      if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "").trim();
+    }
+  }
+} catch {}
+
+const withProxy = !!process.env.AIYIFAN_PROXY_TOKEN;
+const model = makeAiyifanModel({ withProxy });
+console.log(`生成 aiyifan spider，proxy=${withProxy ? "on (" + process.env.AIYIFAN_PROXY_BASE + ")" : "off"}`);
+
+const src = generateT3SpiderFromModel(model);
 const jsPath = path.resolve(__dirname, "../test-output/spider_aiyifan_model_t3.js");
 fs.writeFileSync(jsPath, src);
 console.log(`spider ${src.length} bytes -> ${jsPath}`);

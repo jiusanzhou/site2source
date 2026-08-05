@@ -185,4 +185,43 @@ export const AIYIFAN_MODEL: SiteModel = {
   },
 
   paging: { strategy: "local", page_size: 30 },
+
+  // 国内环境走 cf-proxy 绕 CF GEO block（error 1009）
+  // 部署: labs.zoe.im/cf-proxy (Pages 项目 "notes-edge")
+  //
+  // ⚠️ AUTH_TOKEN 是 secret，不能明文提交到 git。
+  //   实际值由 makeAiyifanModel() 从环境变量注入：
+  //     AIYIFAN_PROXY_BASE / AIYIFAN_PROXY_TOKEN
+  //   见 .env / .env.example
+  //
+  // 直接 import AIYIFAN_MODEL 得到的是"无 proxy"版本（海外环境用）；
+  // 需要 proxy 版本请调用 makeAiyifanModel({ withProxy: true })
 };
+
+/**
+ * 生成 aiyifan SiteModel。
+ * - 默认 (withProxy=false): 无代理，海外环境直接用
+ * - withProxy=true: 挂 cf-proxy，从环境变量读凭证
+ */
+export function makeAiyifanModel(opts: { withProxy?: boolean } = {}): SiteModel {
+  const base = { ...AIYIFAN_MODEL };
+  if (!opts.withProxy) return base;
+
+  const proxyBase = process.env.AIYIFAN_PROXY_BASE;
+  const proxyToken = process.env.AIYIFAN_PROXY_TOKEN;
+  if (!proxyBase || !proxyToken) {
+    throw new Error(
+      "makeAiyifanModel({ withProxy: true }) 需要环境变量 AIYIFAN_PROXY_BASE + AIYIFAN_PROXY_TOKEN (见 .env.example)",
+    );
+  }
+  return {
+    ...base,
+    proxy: {
+      base: proxyBase,
+      mode: "query",
+      headers: { Authorization: `Bearer ${proxyToken}` },
+      only: ["api", "rank"],
+      proxy_media: false,
+    },
+  };
+}
