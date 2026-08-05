@@ -1,4 +1,4 @@
-# Example: MacCMS 采集站 (不用 spider)
+# Example: MacCMS 采集站 (走 tvbox build 路径)
 
 **站点特征**：
 - URL 长得像 `/index.php/vod/detail/id/xxx.html`
@@ -8,60 +8,122 @@
 ## 判断方式
 
 ```bash
+node packages/skill/scripts/classify-site.mjs https://<site>/
+```
+
+看到 `✅ maccms` 即可 —— 也可以 curl 一次:
+```bash
 curl 'https://<site>/api.php/provide/vod/?ac=list'
 ```
 
-看到形如 `{"code": 1, "class": [...], "list": [...]}` 就是 MacCMS。
+返回形如 `{"code": 1, "class": [...], "list": [...]}` 就是。
 
-## 不需要 spider!
+## 不需要 spider
 
-MacCMS 已经跟 tvbox 协议兼容, 直接在 `tvbox.json` 里加一条 `type: 1` 即可:
+MacCMS 天然跟 tvbox 协议兼容。只要在 tvbox 仓库里加一条 `type: 1` 配置即可。**不走 gen-spider / verify-spider**。
+
+## 完整流程 (照做)
+
+假设 tvbox 仓库 = `jiusanzhou/tvbox`，本地 mirror 在 `.tvbox-mirror/`：
+
+### 1. 在 tvbox 仓库建 site 目录
+
+```bash
+mkdir -p .tvbox-mirror/sites/<slug>
+```
+
+### 2. 写 meta.json
 
 ```json
 {
-  "key": "example_maccms",
-  "name": "🎬 示例站",
+  "key": "<slug>",
+  "name": "⚡ <显示名>",
   "type": 1,
-  "api": "https://example.com/api.php/provide/vod",
+  "api": "https://<host>/api.php/provide/vod",
   "searchable": 1,
   "quickSearch": 1,
-  "filterable": 1
+  "filterable": 1,
+  "tags": ["cn", "maccms"],
+  "source": "https://<host>/",
+  "note": "MacCMS v10 采集站, XXX 部影片, N 分类",
+  "probes": ["https://<host>/api.php/provide/vod/?ac=list"]
 }
 ```
 
-**就这一行, 没了**. 不需要 spider.js, 不需要 SiteModel, 不需要跑 gen/verify.
+**关键区别（vs type=3 spider 站）**:
+- `type: 1`（不是 3）
+- **有** `api` 字段（外部 URL）
+- **没有** `spider` 字段（不需要 spider.js）
+- `tags` 建议加 `maccms` 便于筛选
 
-## 手动 publish (直接改 tvbox 仓库)
+### 3. tvbox 仓库的 build.mjs 需要支持 type=0/1
+
+**默认的 build.mjs 只处理 type=3 spider 站**。如果没升级过，跑 build 会报 `sites/xxx/meta.json 缺 key/name/spider`。
+
+需要在 build.mjs 里加分支处理（参考 `jiusanzhou/tvbox` commit `05482a8`）：
+
+```js
+// scripts/build.mjs 里 site loop 前面
+const isCollector = meta.type === 0 || meta.type === 1;
+
+if (isCollector) {
+  if (!meta.api) {
+    console.error(`❌ type=${meta.type} 需要 api 字段`);
+    process.exit(1);
+  }
+  sites.push({
+    key: meta.key,
+    name: meta.name,
+    type: meta.type,
+    api: meta.api,           // ← 外部 URL 原样塞进去, 不做 resolveUrl 转换
+    searchable: meta.searchable ?? 1,
+    quickSearch: meta.quickSearch ?? 1,
+    filterable: meta.filterable ?? 1,
+    ...(meta.categories ? { categories: meta.categories } : {}),
+  });
+  siteMeta.push({
+    key: meta.key,
+    hash: crypto.createHash('sha256').update(meta.api).digest('hex').slice(0, 8),
+    tags: meta.tags || [],
+    type: meta.type,
+    updated_at: fs.statSync(path.join(sitesDir, d, 'meta.json')).mtime.toISOString(),
+  });
+  continue;
+}
+
+// 下面继续原有 type=3 spider 逻辑
+if (!meta.spider) { /* ... */ }
+```
+
+### 4. build + push
 
 ```bash
 cd .tvbox-mirror
-# 或 pnpm 命令自动加, 看你 tvbox 仓库 scripts/build.mjs 支持啥
-git checkout main && git pull
-# 编辑 sites.json 或 build.mjs 里的清单, 加一条 type=1
-git add . && git commit -m "add: <site>"
+pnpm build          # 或 node scripts/build.mjs
+git add -A
+git commit -m "feat: add <slug> MacCMS 采集站"
 git push origin main
 ```
 
+GH Pages 30s-2min 生效，用户端订阅 URL 自动拿到新站。
+
 ## MacCMS 变体
 
-有些站改过 MacCMS，需要看具体接口：
+有些站改过 MacCMS，接口路径不一样：
 
-| 特征 | 类型 |
-|------|------|
-| `/api.php/provide/vod/?ac=list` + 返回标准 JSON | `type: 1` |
-| `/api.php/provide/vod/?ac=videolist` 返回 XML  | `type: 0` |
-| `/inc/api.php` 或其他自定义路径 | 试 `type: 1` 用自定义 api URL |
-| `/api.php/provide/vod/from/xxx/at/json` 分片 | `type: 1` |
+| 特征 | 类型 | api 字段 |
+|------|------|----------|
+| `/api.php/provide/vod/?ac=list` + JSON | `type: 1` | `https://xxx/api.php/provide/vod` |
+| `/api.php/provide/vod/?ac=videolist` + XML | `type: 0` | 同上 |
+| `/inc/api.php` 或其他自定义路径 | `type: 1` | 用它的路径 |
+| `/api.php/provide/vod/from/xxx/at/json` 分片 | `type: 1` | 用完整分片 URL |
 
-## 为什么本 skill 不处理 MacCMS
+## 已完成案例
 
-本 skill 目标是**签名 SPA / 复杂反爬**站点。MacCMS 是 tvbox 一等公民，直接改 tvbox.json 就好，用 spider 生成器反而多此一举。
+- `jiusanzhou/tvbox` commit `05482a8`：`cj.ffzyapi.com` (97655 部影片, 31 分类)
 
-**如果 classify-site.mjs 报 `maccms`**：
-1. 复制上面那段 `type: 1` 配置
-2. 改 key/name/api URL
-3. 手动 append 到 tvbox 仓库的 sites 清单里
-4. 跑 tvbox 仓库的 `pnpm build`
-5. push
+## 为什么本 skill 不做 gen/verify
 
-**skill 到此结束**。
+MacCMS 是 tvbox 一等公民，客户端自己会调 API。**skill 的价值在签名 SPA / 复杂反爬站**，MacCMS 加一行配置就好。
+
+**如果 classify 报 `maccms`**：直接照本文流程走，不要瞎调 gen-spider —— 也没意义。
